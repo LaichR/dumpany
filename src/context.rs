@@ -199,11 +199,26 @@ mod tests {
     use std::{cell::RefCell, rc::Rc};
 
     #[test]
+    fn text_accepts_display_directly_and_inside_contexts() -> Result<()> {
+        let writer = Rc::new(RefCell::new(Vec::new()));
+        let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+        dumper.text(42)?;
+        dumper.text(format_args!(" = {}", "answer"))?;
+        dumper.new_line(None)?;
+        Context::new(None, None).with(&mut dumper, |d| {
+            d.text(42)?;
+            d.text(format_args!(" = {}", "answer"))
+        })?;
+        assert_eq!(&*writer.borrow(), b"42 = answer\n42 = answer\n");
+        Ok(())
+    }
+
+    #[test]
     fn scoped_contexts_nest_and_return_values() -> Result<()> {
         let writer = Rc::new(RefCell::new(Vec::new()));
         let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
         let value = Context::new(Some("- "), None).with(&mut dumper, |d| {
-            Context::new(Some("* "), None).with(d, |d| d.text("hello".into()))?;
+            Context::new(Some("* "), None).with(d, |d| d.text("hello"))?;
             Ok(42)
         })?;
         assert_eq!(value, 42);
@@ -219,7 +234,7 @@ mod tests {
             .with(&mut dumper, |_| Err::<(), _>(Error::other("body failed")))
             .unwrap_err();
         assert_eq!(error.to_string(), "body failed");
-        dumper.text("after".into())?;
+        dumper.text("after")?;
         dumper.new_line(None)?;
         assert_eq!(&*writer.borrow(), b"-\nafter\n");
         Ok(())

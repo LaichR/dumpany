@@ -60,11 +60,11 @@ mod tests {
                     line_width: 10,
                 },
             );
-            d.text("hello world".to_string())?;
+            d.text("hello world")?;
             NewLine(Some(Indentation::Increment(1))).dump(&mut d)?;
-            d.text("hello world indented".to_string())?;
+            d.text("hello world indented")?;
             NewLine(Some(Indentation::Decrement(1))).dump(&mut d)?;
-            d.text("hello world not indented".to_string())?;
+            d.text("hello world not indented")?;
             NewLine(None).dump(&mut d)?;
             Ok(())
         }
