@@ -1,6 +1,7 @@
 //! Single-pass context traversal over a completed recorder buffer.
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind, Result, Write};
 
+use crate::core::Dumper;
 use crate::operations::{FromBytes, Operation, ToBytes, put_optional_text};
 use bytes::{BufMut, BytesMut};
 
@@ -44,6 +45,23 @@ pub struct Context<'parent, 'data> {
 }
 
 impl Context<'static, 'static> {
+    /// Run a closure inside this context, closing it even if the closure fails.
+    /// If both fail, the closure's error takes precedence. Panics are not handled.
+    /// The closure must leave any contexts it opens balanced.
+    pub fn with<W: Write, R>(
+        &self,
+        dumper: &mut Dumper<W>,
+        body: impl FnOnce(&mut Dumper<W>) -> Result<R>,
+    ) -> Result<R> {
+        dumper.open_context(self.prefix, self.name)?;
+        let result = body(dumper);
+        let closed = dumper.close_context();
+        match result {
+            Ok(value) => closed.map(|()| value),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Context metadata for recording. Only name and prefix are encoded.
     pub fn new(prefix: Option<&'static str>, name: Option<&'static str>) -> Self {
         Self {
@@ -177,6 +195,54 @@ impl Drop for Context<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::DumperConfig;
+    use std::{cell::RefCell, rc::Rc};
+
+    #[test]
+    fn scoped_contexts_nest_and_return_values() -> Result<()> {
+        let writer = Rc::new(RefCell::new(Vec::new()));
+        let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+        let value = Context::new(Some("- "), None).with(&mut dumper, |d| {
+            Context::new(Some("* "), None).with(d, |d| d.text("hello".into()))?;
+            Ok(42)
+        })?;
+        assert_eq!(value, 42);
+        assert_eq!(&*writer.borrow(), b"- * hello\n\n");
+        Ok(())
+    }
+
+    #[test]
+    fn scoped_context_closes_after_body_error() -> Result<()> {
+        let writer = Rc::new(RefCell::new(Vec::new()));
+        let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+        let error = Context::new(Some("- "), None)
+            .with(&mut dumper, |_| Err::<(), _>(Error::other("body failed")))
+            .unwrap_err();
+        assert_eq!(error.to_string(), "body failed");
+        dumper.text("after".into())?;
+        dumper.new_line(None)?;
+        assert_eq!(&*writer.borrow(), b"-\nafter\n");
+        Ok(())
+    }
+
+    #[test]
+    fn scoped_context_reports_close_errors_and_prefers_body_errors() {
+        let writer = Rc::new(RefCell::new(Vec::new()));
+        let mut dumper = Dumper::new(
+            writer,
+            DumperConfig {
+                line_width: 1,
+                ..DumperConfig::default()
+            },
+        );
+        let context = Context::new(Some("too long"), None);
+        let error = context.with(&mut dumper, |_| Ok(())).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        let error = context
+            .with(&mut dumper, |_| Err::<(), _>(Error::other("body failed")))
+            .unwrap_err();
+        assert_eq!(error.to_string(), "body failed");
+    }
     use crate::core::Text;
     use crate::recorder::Recorder;
 
