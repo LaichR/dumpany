@@ -1,5 +1,6 @@
 pub mod context;
 pub mod core;
+pub mod dump_tuple;
 pub mod operations;
 pub mod recorder;
 
@@ -15,6 +16,113 @@ mod tests {
 
     use crate::context::Context;
     use crate::core::{Dump, Dumper, DumperConfig, Indentation, NewLine, Target, Text};
+
+    #[test]
+    fn iterator_dumps_empty_single_and_multiple_sequences() -> Result<()> {
+        for (count, expected) in [(0, ""), (1, "1\n"), (3, "123\n")] {
+            let writer = Rc::new(RefCell::new(Vec::new()));
+            let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+            dumper.iterator((1..=count).map(Text))?;
+            if count > 0 {
+                dumper.new_line(None)?;
+            }
+            assert_eq!(&*writer.borrow(), expected.as_bytes());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn join_emits_delimiters_only_between_elements() -> Result<()> {
+        for (count, expected) in [(0, ""), (1, "1\n"), (3, "1,2,3\n")] {
+            let writer = Rc::new(RefCell::new(Vec::new()));
+            let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+            dumper.join((1..=count).map(Text), Text(","))?;
+            if count > 0 {
+                dumper.new_line(None)?;
+            }
+            assert_eq!(&*writer.borrow(), expected.as_bytes());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn join_accepts_structured_delimiters() -> Result<()> {
+        let writer = Rc::new(RefCell::new(Vec::new()));
+        let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+        dumper.join(
+            [Text("first"), Text("second"), Text("third")],
+            NewLine(None),
+        )?;
+        dumper.new_line(None)?;
+        assert_eq!(&*writer.borrow(), b"first\nsecond\nthird\n");
+        Ok(())
+    }
+
+    struct DumpStep {
+        name: &'static str,
+        calls: Rc<RefCell<Vec<&'static str>>>,
+        fail: bool,
+    }
+
+    impl Dump for DumpStep {
+        fn dump<W: std::io::Write>(&self, _: &mut Dumper<W>) -> Result<()> {
+            self.calls.borrow_mut().push(self.name);
+            if self.fail {
+                Err(std::io::Error::other(self.name))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn iterator_stops_consuming_after_an_item_error() {
+        let writer = Rc::new(RefCell::new(Vec::new()));
+        let mut dumper = Dumper::new(writer, DumperConfig::default());
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut consumed = 0;
+        let items = ["first", "second", "third"].into_iter().map(|name| {
+            consumed += 1;
+            DumpStep {
+                name,
+                calls: calls.clone(),
+                fail: name == "second",
+            }
+        });
+        let error = dumper.iterator(items).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Other);
+        assert_eq!(error.to_string(), "second");
+        assert_eq!(&*calls.borrow(), &["first", "second"]);
+        assert_eq!(consumed, 2);
+    }
+
+    #[test]
+    fn join_stops_on_item_or_delimiter_errors() {
+        for failure in ["first", "second", "delimiter"] {
+            let writer = Rc::new(RefCell::new(Vec::new()));
+            let mut dumper = Dumper::new(writer, DumperConfig::default());
+            let calls = Rc::new(RefCell::new(Vec::new()));
+            let step = |name| DumpStep {
+                name,
+                calls: calls.clone(),
+                fail: name == failure,
+            };
+            let error = dumper
+                .join(
+                    [step("first"), step("second"), step("third")],
+                    step("delimiter"),
+                )
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Other);
+            assert_eq!(error.to_string(), failure);
+            let expected: &[&str] = match failure {
+                "first" => &["first"],
+                "second" => &["first", "delimiter", "second"],
+                _ => &["first", "delimiter"],
+            };
+            assert_eq!(&*calls.borrow(), expected);
+        }
+    }
 
     #[test]
     fn closed_children_remain_targetable_until_flush() -> Result<()> {
