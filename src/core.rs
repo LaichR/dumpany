@@ -59,7 +59,7 @@ impl Dump for NewLine {
 
 impl<T: Display> Dump for Text<T> {
     fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
-        dumper.text(format!("{}", self.0))
+        dumper.text(&self.0)
     }
 }
 
@@ -75,11 +75,11 @@ impl<T: Write> Dumper<T> {
         }
     }
 
-    pub fn text(&mut self, text: String) -> Result<()> {
+    pub fn text(&mut self, text: impl Display) -> Result<()> {
         if let Some(recorder) = &mut self.recorder {
             recorder.text(text)?
         } else {
-            self.dump_text(&text)?
+            self.dump_text(&text.to_string())?
         }
         Ok(())
     }
