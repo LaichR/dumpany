@@ -1,14 +1,21 @@
-use crate::context::{Context, Cursor};
 use crate::core::Indentation::{Decrement, Increment};
-use crate::operations::Operation;
+use crate::operations::{FromBytes, Operation};
 use crate::recorder::Recorder;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{Error, ErrorKind, Result, Write};
 use std::rc::Rc;
-use std::unreachable;
 
 const DEFAULT_WIDTH: usize = 120_usize;
+
+/// Select a lazily created context prologue or epilogue.
+/// Requires an explicit context name, which remains valid until root flushing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target<'a> {
+    Prologue(&'a str),
+    Epilogue(&'a str),
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Indentation {
@@ -41,8 +48,12 @@ pub struct Dumper<T: Write> {
     indent: usize,
     config: DumperConfig,
     recorder: Option<Recorder>,
+    names: Vec<&'static str>,
+    prologues: HashMap<&'static str, Recorder>,
+    epilogues: HashMap<&'static str, Recorder>,
     current_line: String,
     left_margin: Vec<usize>,
+    in_section: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -69,24 +80,82 @@ impl<T: Write> Dumper<T> {
             writer,
             config,
             recorder: None,
+            names: Vec::new(),
+            prologues: HashMap::new(),
+            epilogues: HashMap::new(),
             indent: 0,
             current_line: String::new(),
             left_margin: Vec::new(),
+            in_section: false,
         }
+    }
+
+    /// Record a prologue or epilogue, then restore normal recording, including on error.
+    /// Selecting another target from inside this scope is forbidden.
+    /// Contexts opened by the closure must be closed within it. Panics are not handled.
+    pub fn with_target<R>(
+        &mut self,
+        target: Target<'_>,
+        body: impl FnOnce(&mut Self) -> Result<R>,
+    ) -> Result<R> {
+        if self.in_section {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "target selection is only allowed from the main body",
+            ));
+        }
+        let recorder = self.recorder.as_mut().ok_or_else(|| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "target selection requires an open context",
+            )
+        })?;
+        let requested = match target {
+            Target::Prologue(name) | Target::Epilogue(name) => name,
+        };
+        let name = self
+            .names
+            .iter()
+            .copied()
+            .find(|name| *name == requested)
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, "unknown context name"))?;
+        let section = match target {
+            Target::Prologue(_) => self.prologues.remove(name),
+            Target::Epilogue(_) => self.epilogues.remove(name),
+        }
+        .unwrap_or_default();
+        let main = std::mem::replace(recorder, section);
+        self.in_section = true;
+        let result = body(self);
+        let recorder = self
+            .recorder
+            .as_mut()
+            .expect("section cannot close its enclosing context");
+        let section = std::mem::replace(recorder, main);
+        self.in_section = false;
+        match target {
+            Target::Prologue(_) => {
+                self.prologues.insert(name, section);
+            }
+            Target::Epilogue(_) => {
+                self.epilogues.insert(name, section);
+            }
+        }
+        result
     }
 
     pub fn text(&mut self, text: impl Display) -> Result<()> {
         if let Some(recorder) = &mut self.recorder {
-            recorder.text(text)?
+            recorder.text(text)?;
         } else {
-            self.dump_text(&text.to_string())?
+            self.dump_text(&text.to_string())?;
         }
         Ok(())
     }
 
     pub fn inc_indent(&mut self) -> Result<()> {
         if let Some(recorder) = &mut self.recorder {
-            recorder.inc_indent()?
+            recorder.inc_indent()?;
         } else {
             self.indent += 1;
         }
@@ -95,7 +164,7 @@ impl<T: Write> Dumper<T> {
 
     pub fn dec_indent(&mut self) -> Result<()> {
         if let Some(recorder) = &mut self.recorder {
-            recorder.dec_indent()?
+            recorder.dec_indent()?;
         } else {
             self.indent -= 1;
         }
@@ -104,7 +173,7 @@ impl<T: Write> Dumper<T> {
 
     pub fn new_line(&mut self, change_indentation: Option<Indentation>) -> Result<()> {
         if let Some(recorder) = &mut self.recorder {
-            recorder.new_line(change_indentation)?
+            return recorder.new_line(change_indentation);
         }
         self.flush_line()?;
         if let Some(indentation) = change_indentation {
@@ -127,40 +196,60 @@ impl<T: Write> Dumper<T> {
         prefix: Option<&'static str>,
         name: Option<&'static str>,
     ) -> Result<()> {
-        match &mut self.recorder {
-            None => {
-                let recorder = Recorder::new(prefix, name)?;
-                self.recorder = Some(recorder);
-                Ok(())
-            }
-            Some(recorder) => recorder.open_context(prefix, name),
+        if name.is_some_and(|name| self.names.contains(&name)) {
+            return Err(Error::new(
+                ErrorKind::AlreadyExists,
+                "context name is already registered",
+            ));
         }
-    }
-
-    pub fn close_context(&mut self) -> Result<()> {
-        let dump_context = match &mut self.recorder {
-            Some(recorder) => {
-                recorder.close_context()?;
-                recorder.context_depth() == 0
-            }
-            None => false,
-        };
-        if dump_context {
-            let recorder = match self.recorder.take() {
-                Some(recorder) => recorder,
-                None => unreachable!(),
-            };
-            let mut cursor = Cursor::new(recorder.encoded_content());
-            let root = Context::from_encoding(&mut cursor)?;
-            self.dump_section(root)?;
+        self.recorder
+            .get_or_insert_with(Recorder::default)
+            .open_context(prefix, name)?;
+        if let Some(name) = name {
+            self.names.push(name);
         }
         Ok(())
     }
 
-    fn dump_section(&mut self, mut context: Context<'_, '_>) -> Result<()> {
+    pub fn close_context(&mut self) -> Result<()> {
+        if self
+            .recorder
+            .as_ref()
+            .is_some_and(|recorder| self.in_section && recorder.context_depth() == 0)
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "cannot close an enclosing context inside a target scope",
+            ));
+        }
+        let dump_to_writer = match &mut self.recorder {
+            Some(recorder) => {
+                recorder.close_context()?;
+                !self.in_section && recorder.context_depth() == 0
+            }
+            None => false,
+        };
+        if dump_to_writer {
+            let recorder = self.recorder.take().expect("root recorder exists");
+            let prologues = std::mem::take(&mut self.prologues);
+            let epilogues = std::mem::take(&mut self.epilogues);
+            self.names.clear();
+            self.dump_recorder(&prologues, &epilogues, &recorder)?;
+        }
+        Ok(())
+    }
+
+    fn dump_context(
+        &mut self,
+        prologues: &HashMap<&'static str, Recorder>,
+        epilogues: &HashMap<&'static str, Recorder>,
+        name: Option<&str>,
+        prefix: Option<&str>,
+        bytes: &mut &[u8],
+    ) -> Result<()> {
         self.set_left_margin();
         let mut has_prefix = false;
-        if let Some(prefix) = context.prefix {
+        if let Some(prefix) = prefix {
             // we assume that the prefix is allways
 
             self.current_line.push_str(prefix);
@@ -175,20 +264,12 @@ impl<T: Write> Dumper<T> {
             self.set_left_margin();
             has_prefix = true;
         }
-        while let Ok(f) = context.next_event() {
-            match f {
-                Some(Operation::Text(txt)) => self.dump_text(txt.0)?,
-                Some(Operation::NewLine(nl)) => self.new_line(nl.0)?,
-                Some(Operation::OpenContext(context)) => self.dump_section(context)?,
-                Some(Operation::CloseContext(_)) => {
-                    return Err(Error::new(
-                        ErrorKind::InvalidInput,
-                        "close context should be consumed by parent",
-                    ));
-                }
-                Some(Operation::Indentation(_)) => {}
-                None => break, // this is the end of a context
-            }
+        if let Some(prologue) = name.and_then(|name| prologues.get(name)) {
+            self.dump_recorder(prologues, epilogues, prologue)?;
+        }
+        self.dump_content(prologues, epilogues, bytes, true)?;
+        if let Some(epilogue) = name.and_then(|name| epilogues.get(name)) {
+            self.dump_recorder(prologues, epilogues, epilogue)?;
         }
         if has_prefix {
             self.release_left_margin();
@@ -196,6 +277,50 @@ impl<T: Write> Dumper<T> {
         self.release_left_margin();
         self.flush_line()?;
         Ok(())
+    }
+
+    fn dump_recorder(
+        &mut self,
+        prologues: &HashMap<&'static str, Recorder>,
+        epilogues: &HashMap<&'static str, Recorder>,
+        recorder: &Recorder,
+    ) -> Result<()> {
+        let mut bytes = recorder.encoded_content();
+        self.dump_content(prologues, epilogues, &mut bytes, false)
+    }
+
+    fn dump_content(
+        &mut self,
+        prologues: &HashMap<&'static str, Recorder>,
+        epilogues: &HashMap<&'static str, Recorder>,
+        bytes: &mut &[u8],
+        in_context: bool,
+    ) -> Result<()> {
+        while !bytes.is_empty() {
+            match Operation::from_bytes(bytes)? {
+                Operation::Text(text) => self.dump_text(text.0)?,
+                Operation::NewLine(line) => self.new_line(line.0)?,
+                Operation::Indentation(Increment(amount)) => self.indent += amount as usize,
+                Operation::Indentation(Decrement(amount)) => {
+                    self.indent = self.indent.saturating_sub(amount as usize)
+                }
+                Operation::OpenContext(context) => {
+                    self.dump_context(prologues, epilogues, context.name, context.prefix, bytes)?;
+                }
+                Operation::CloseContext(_) if in_context => return Ok(()),
+                Operation::CloseContext(_) => {
+                    return Err(Error::new(
+                        ErrorKind::InvalidData,
+                        "unexpected context close",
+                    ));
+                }
+            }
+        }
+        if in_context {
+            Err(Error::new(ErrorKind::UnexpectedEof, "unclosed context"))
+        } else {
+            Ok(())
+        }
     }
 
     fn dump_text(&mut self, text: &str) -> Result<()> {

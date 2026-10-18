@@ -1,6 +1,4 @@
-//! Records one root context and its nested operations into a single byte buffer.
-//! The caller owns lifecycle validation: close only open contexts and stop
-//! recording when the root closes.
+//! Encodes operations into a byte buffer. Lifecycle and routing belong to the caller.
 use bytes::BytesMut;
 use std::fmt::Display;
 use std::io::Result;
@@ -9,6 +7,7 @@ use crate::context::Context;
 use crate::core::{Indentation, NewLine, Text};
 use crate::operations::{CloseContext, ToBytes};
 
+#[derive(Default)]
 pub struct Recorder {
     encoded_content: BytesMut,
     context_depth: usize,
@@ -17,10 +16,7 @@ pub struct Recorder {
 impl Recorder {
     /// Start recording by encoding the root context immediately.
     pub fn new(prefix: Option<&'static str>, name: Option<&'static str>) -> Result<Self> {
-        let mut recorder = Self {
-            encoded_content: BytesMut::new(),
-            context_depth: 0,
-        };
+        let mut recorder = Self::default();
         recorder.open_context(prefix, name)?;
         Ok(recorder)
     }
@@ -66,7 +62,7 @@ impl Recorder {
         &self.encoded_content
     }
 
-    /// Transfer the buffer without copying. The caller ensures the root is closed.
+    /// Transfer the buffer without copying.
     pub fn into_encoded_content(self) -> BytesMut {
         self.encoded_content
     }
@@ -140,6 +136,18 @@ mod tests {
         CloseContext::from_bytes(&mut input)?;
         assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text("after"));
         CloseContext::from_bytes(&mut input)?;
+        assert!(input.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn records_operations_without_an_enclosing_context() -> Result<()> {
+        let mut recorder = Recorder::default();
+        recorder.text("section")?;
+        recorder.new_line(None)?;
+        let mut input = recorder.encoded_content();
+        assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text("section"));
+        assert_eq!(NewLine::from_bytes(&mut input)?, NewLine(None));
         assert!(input.is_empty());
         Ok(())
     }
