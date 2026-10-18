@@ -111,6 +111,7 @@ impl ToBytes for Context<'_, '_> {
 
 impl<'parent, 'data: 'parent> Context<'parent, 'data> {
     /// Borrow a caller-owned replay cursor and consume the opening record.
+    #[allow(dead_code)] // Retained for traversal of standalone recorder buffers.
     pub(crate) fn from_encoding(cursor: &'parent mut Cursor<'data>) -> Result<Self> {
         if let Some(error) = &cursor.error {
             return Err(Error::new(error.kind(), error.to_string()));
@@ -197,6 +198,69 @@ mod tests {
     use super::*;
     use crate::core::DumperConfig;
     use std::{cell::RefCell, rc::Rc};
+
+    #[test]
+    fn sections_buffer_newlines_and_allow_nested_contexts() -> Result<()> {
+        use crate::core::Target;
+        let writer = Rc::new(RefCell::new(Vec::new()));
+        let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+        Context::new(None, Some("root")).with(&mut dumper, |d| {
+            d.text("body")?;
+            d.with_target(Target::Prologue("root"), |d| {
+                assert!(d.close_context().is_err());
+                Context::new(None, Some("header")).with(d, |d| d.text("header"))?;
+                d.text("before")?;
+                d.new_line(None)
+            })?;
+            assert!(writer.borrow().is_empty());
+            d.with_target(Target::Epilogue("root"), |d| d.text("after"))
+        })?;
+        assert_eq!(&*writer.borrow(), b"header\nbefore\nbodyafter\n");
+        Ok(())
+    }
+
+    #[test]
+    fn scoped_targets_restore_output_and_render_sections_in_order() -> Result<()> {
+        use crate::core::Target;
+        let writer = Rc::new(RefCell::new(Vec::new()));
+        let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+        assert!(
+            dumper
+                .with_target(Target::Prologue("root"), |_| Ok(()))
+                .is_err()
+        );
+        Context::new(None, Some("root")).with(&mut dumper, |d| {
+            d.text("body")?;
+            d.with_target(Target::Epilogue("root"), |d| d.text("after"))?;
+            d.with_target(Target::Prologue("root"), |d| {
+                d.text("before")?;
+                let error = d
+                    .with_target(Target::Epilogue("root"), |d| {
+                        d.text("!")?;
+                        Err::<(), _>(Error::other("failed"))
+                    })
+                    .unwrap_err();
+                assert_eq!(error.kind(), ErrorKind::InvalidInput);
+                d.text(":")
+            })?;
+            let error = d
+                .with_target(Target::Epilogue("root"), |d| {
+                    d.text("!")?;
+                    Err::<(), _>(Error::other("failed"))
+                })
+                .unwrap_err();
+            assert_eq!(error.to_string(), "failed");
+            assert!(
+                d.with_target(Target::Prologue("missing"), |_| Ok(()))
+                    .is_err()
+            );
+            d.text("tail")
+        })?;
+        assert_eq!(&*writer.borrow(), b"before:bodytailafter!\n");
+        // The flushed namespace no longer prevents reuse of the name.
+        Context::new(None, Some("root")).with(&mut dumper, |_| Ok(()))?;
+        Ok(())
+    }
 
     #[test]
     fn text_accepts_display_directly_and_inside_contexts() -> Result<()> {
