@@ -1,4 +1,5 @@
 use crate::core::Indentation::{Decrement, Increment};
+use crate::dump_tuple::DumpHeadTail;
 use crate::operations::{FromBytes, Operation};
 use crate::recorder::Recorder;
 use std::cell::RefCell;
@@ -151,6 +152,39 @@ impl<T: Write> Dumper<T> {
             self.dump_text(&text.to_string())?;
         }
         Ok(())
+    }
+
+    pub fn join<I, D>(&mut self, items: I, delimiter: D) -> Result<()>
+    where
+        I: IntoIterator,
+        I::Item: Dump,
+        D: Dump,
+    {
+        let mut iterator = items.into_iter();
+        if let Some(first) = iterator.next() {
+            first.dump(self)?;
+            for i in iterator {
+                delimiter.dump(self)?;
+                i.dump(self)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn iterator<I>(&mut self, items: I) -> Result<()>
+    where
+        I: IntoIterator,
+        I::Item: Dump,
+    {
+        let iterator = items.into_iter();
+        for i in iterator {
+            i.dump(self)?;
+        }
+        Ok(())
+    }
+
+    pub fn tuple<Tuple: DumpHeadTail>(&mut self, tuple: Tuple) -> Result<()> {
+        tuple.dump_head_tail(self)
     }
 
     pub fn inc_indent(&mut self) -> Result<()> {
