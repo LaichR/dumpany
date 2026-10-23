@@ -5,6 +5,9 @@ pub mod operations;
 pub mod recorder;
 
 #[cfg(test)]
+mod finalization_tests;
+
+#[cfg(test)]
 mod tests {
     use std::{
         cell::RefCell,
@@ -281,7 +284,7 @@ mod tests {
             let mut d = Dumper::new(
                 result_writer("test_simple_text_dump")?,
                 DumperConfig {
-                    new_line: "\n",
+                    new_line: "\n".into(),
                     indent_width: 2,
                     line_width: 10,
                 },
@@ -305,7 +308,7 @@ mod tests {
             let mut d = Dumper::new(
                 result_writer("test_context_text_dump")?,
                 DumperConfig {
-                    new_line: "\n",
+                    new_line: "\n".into(),
                     indent_width: 4,
                     line_width: 40,
                 },
