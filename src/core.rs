@@ -29,7 +29,7 @@ pub trait Dump {
 }
 
 pub struct DumperConfig {
-    pub new_line: &'static str,
+    pub new_line: String,
     pub indent_width: usize,
     pub line_width: usize,
 }
@@ -37,14 +37,22 @@ pub struct DumperConfig {
 impl Default for DumperConfig {
     fn default() -> Self {
         Self {
-            new_line: "\n",
+            new_line: String::from("\n"),
             indent_width: 4,
             line_width: DEFAULT_WIDTH,
         }
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DumperState {
+    Active,
+    Finalized,
+    Failed,
+}
+
 pub struct Dumper<T: Write> {
+    state: DumperState,
     writer: Rc<RefCell<T>>,
     indent: usize,
     config: DumperConfig,
@@ -78,6 +86,7 @@ impl<T: Display> Dump for Text<T> {
 impl<T: Write> Dumper<T> {
     pub fn new(writer: Rc<RefCell<T>>, config: DumperConfig) -> Self {
         Self {
+            state: DumperState::Active,
             writer,
             config,
             recorder: None,
@@ -91,6 +100,45 @@ impl<T: Write> Dumper<T> {
         }
     }
 
+    fn ensure_active(&self) -> Result<()> {
+        match self.state {
+            DumperState::Active => Ok(()),
+            DumperState::Finalized => Err(Error::other("dumper is finalized")),
+            DumperState::Failed => Err(Error::other("dumper has failed")),
+        }
+    }
+
+    /// Close all contexts, emit a pending line, and flush the borrowed/shared writer.
+    /// Never closes the writer. Successful repeated calls do nothing; failures are
+    /// terminal because output may already have been partially written.
+    pub fn dump_all(&mut self) -> Result<()> {
+        if self.state == DumperState::Finalized {
+            return Ok(());
+        }
+        self.ensure_active()?;
+        if self.in_section {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "cannot finalize inside a target scope",
+            ));
+        }
+        let result = (|| {
+            while self.recorder.is_some() {
+                self.close_context()?;
+            }
+            if !self.current_line.is_empty() {
+                self.flush_line()?;
+            }
+            self.writer.borrow_mut().flush()
+        })();
+        self.state = if result.is_ok() {
+            DumperState::Finalized
+        } else {
+            DumperState::Failed
+        };
+        result
+    }
+
     /// Record a prologue or epilogue, then restore normal recording, including on error.
     /// Selecting another target from inside this scope is forbidden.
     /// Contexts opened by the closure must be closed within it. Panics are not handled.
@@ -99,6 +147,7 @@ impl<T: Write> Dumper<T> {
         target: Target<'_>,
         body: impl FnOnce(&mut Self) -> Result<R>,
     ) -> Result<R> {
+        self.ensure_active()?;
         if self.in_section {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -146,6 +195,7 @@ impl<T: Write> Dumper<T> {
     }
 
     pub fn text(&mut self, text: impl Display) -> Result<()> {
+        self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
             recorder.text(text)?;
         } else {
@@ -160,6 +210,7 @@ impl<T: Write> Dumper<T> {
         I::Item: Dump,
         D: Dump,
     {
+        self.ensure_active()?;
         let mut iterator = items.into_iter();
         if let Some(first) = iterator.next() {
             first.dump(self)?;
@@ -176,6 +227,7 @@ impl<T: Write> Dumper<T> {
         I: IntoIterator,
         I::Item: Dump,
     {
+        self.ensure_active()?;
         let iterator = items.into_iter();
         for i in iterator {
             i.dump(self)?;
@@ -184,10 +236,12 @@ impl<T: Write> Dumper<T> {
     }
 
     pub fn tuple<Tuple: DumpHeadTail>(&mut self, tuple: Tuple) -> Result<()> {
+        self.ensure_active()?;
         tuple.dump_head_tail(self)
     }
 
     pub fn inc_indent(&mut self) -> Result<()> {
+        self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
             recorder.inc_indent()?;
         } else {
@@ -197,6 +251,7 @@ impl<T: Write> Dumper<T> {
     }
 
     pub fn dec_indent(&mut self) -> Result<()> {
+        self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
             recorder.dec_indent()?;
         } else {
@@ -206,6 +261,7 @@ impl<T: Write> Dumper<T> {
     }
 
     pub fn new_line(&mut self, change_indentation: Option<Indentation>) -> Result<()> {
+        self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
             return recorder.new_line(change_indentation);
         }
@@ -230,6 +286,7 @@ impl<T: Write> Dumper<T> {
         prefix: Option<&'static str>,
         name: Option<&'static str>,
     ) -> Result<()> {
+        self.ensure_active()?;
         if name.is_some_and(|name| self.names.contains(&name)) {
             return Err(Error::new(
                 ErrorKind::AlreadyExists,
@@ -246,6 +303,7 @@ impl<T: Write> Dumper<T> {
     }
 
     pub fn close_context(&mut self) -> Result<()> {
+        self.ensure_active()?;
         if self
             .recorder
             .as_ref()
@@ -417,10 +475,15 @@ impl<T: Write> Dumper<T> {
         if self.current_line.ends_with(' ') {
             self.current_line = self.current_line.trim_end().into();
         }
-        self.current_line.push_str(self.config.new_line);
-        self.writer
+        self.current_line.push_str(&self.config.new_line);
+        let result = self
+            .writer
             .borrow_mut()
-            .write_all(self.current_line.as_bytes())?;
+            .write_all(self.current_line.as_bytes());
+        if let Err(error) = result {
+            self.state = DumperState::Failed;
+            return Err(error);
+        }
         self.current_line.clear();
         Ok(())
     }
