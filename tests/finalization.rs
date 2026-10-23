@@ -1,40 +1,12 @@
-use std::cell::RefCell;
-use std::io::{self, Write};
-use std::rc::Rc;
+mod common;
 
-use crate::core::{Dumper, DumperConfig, Target};
-
-#[derive(Default)]
-struct Writer {
-    bytes: Vec<u8>,
-    flushes: usize,
-    fail_write: bool,
-    fail_flush: bool,
-}
-
-impl Write for Writer {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if self.fail_write {
-            // Simulate a partial write before a subsequent failure.
-            if self.bytes.is_empty() && !bytes.is_empty() {
-                self.bytes.push(bytes[0]);
-                return Ok(1);
-            }
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "write failed"));
-        }
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.flushes += 1;
-        if self.fail_flush {
-            Err(io::Error::other("flush failed"))
-        } else {
-            Ok(())
-        }
-    }
-}
+use common::Writer;
+use dumpany::core::{Dumper, DumperConfig, Target};
+use std::{
+    cell::RefCell,
+    io::{self, Write},
+    rc::Rc,
+};
 
 #[test]
 fn finalizes_pending_lines_once_and_leaves_writer_usable() -> io::Result<()> {
@@ -55,7 +27,7 @@ fn finalizes_pending_lines_once_and_leaves_writer_usable() -> io::Result<()> {
         assert!(d.open_context(None, None).is_err());
         assert!(d.close_context().is_err());
         assert!(
-            d.iterator(std::iter::empty::<crate::core::NewLine>())
+            d.iterator(std::iter::empty::<dumpany::core::NewLine>())
                 .is_err()
         );
         writer.borrow_mut().write_all(b"still usable")?;
