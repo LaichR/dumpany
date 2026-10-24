@@ -81,6 +81,14 @@ calculate column widths or escape Markdown content.
 `DumperConfig` defaults to a line width of 120, four-space indentation, and
 `"\n"` line endings.
 
+## Context metadata
+
+Context names and prefixes may be runtime strings. `open_context()` and
+`Context::new()` accept borrowed `&str` values; opening a context encodes its
+metadata immediately. The dumper owns retained names and prologue/epilogue map
+keys until the root context is flushed, so source strings need not remain alive
+after `open_context()` returns.
+
 ## Writer ownership and finalization
 
 `Dumper::new(writer, config)` takes its writer directly. Pass an owned writer or

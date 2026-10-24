@@ -44,7 +44,7 @@ pub struct Context<'parent, 'data> {
     cursor: Option<&'parent mut Cursor<'data>>,
 }
 
-impl Context<'static, 'static> {
+impl<'data> Context<'data, 'data> {
     /// Run a closure inside this context, closing it even if the closure fails.
     /// If both fail, the closure's error takes precedence. Panics are not handled.
     /// The closure must leave any contexts it opens balanced.
@@ -63,7 +63,7 @@ impl Context<'static, 'static> {
     }
 
     /// Context metadata for recording. Only name and prefix are encoded.
-    pub fn new(prefix: Option<&'static str>, name: Option<&'static str>) -> Self {
+    pub fn new(prefix: Option<&'data str>, name: Option<&'data str>) -> Self {
         Self {
             prefix,
             name,

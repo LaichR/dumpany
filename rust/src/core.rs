@@ -55,9 +55,9 @@ pub struct Dumper<T: Write> {
     indent: usize,
     config: DumperConfig,
     recorder: Option<Recorder>,
-    names: Vec<&'static str>,
-    prologues: HashMap<&'static str, Recorder>,
-    epilogues: HashMap<&'static str, Recorder>,
+    names: Vec<String>,
+    prologues: HashMap<String, Recorder>,
+    epilogues: HashMap<String, Recorder>,
     current_line: String,
     left_margin: Vec<usize>,
     in_section: bool,
@@ -226,12 +226,12 @@ impl<T: Write> Dumper<T> {
         let name = self
             .names
             .iter()
-            .copied()
-            .find(|name| *name == requested)
+            .find(|name| name.as_str() == requested)
+            .cloned()
             .ok_or_else(|| Error::new(ErrorKind::NotFound, "unknown context name"))?;
         let section = match target {
-            Target::Prologue(_) => self.prologues.remove(name),
-            Target::Epilogue(_) => self.epilogues.remove(name),
+            Target::Prologue(_) => self.prologues.remove(&name),
+            Target::Epilogue(_) => self.epilogues.remove(&name),
         }
         .unwrap_or_default();
         let main = std::mem::replace(recorder, section);
@@ -341,13 +341,9 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
-    pub fn open_context(
-        &mut self,
-        prefix: Option<&'static str>,
-        name: Option<&'static str>,
-    ) -> Result<()> {
+    pub fn open_context(&mut self, prefix: Option<&str>, name: Option<&str>) -> Result<()> {
         self.ensure_active()?;
-        if name.is_some_and(|name| self.names.contains(&name)) {
+        if name.is_some_and(|name| self.names.iter().any(|registered| registered == name)) {
             return Err(Error::new(
                 ErrorKind::AlreadyExists,
                 "context name is already registered",
@@ -357,7 +353,7 @@ impl<T: Write> Dumper<T> {
             .get_or_insert_with(Recorder::default)
             .open_context(prefix, name)?;
         if let Some(name) = name {
-            self.names.push(name);
+            self.names.push(name.to_owned());
         }
         Ok(())
     }
@@ -393,8 +389,8 @@ impl<T: Write> Dumper<T> {
 
     fn dump_context(
         &mut self,
-        prologues: &HashMap<&'static str, Recorder>,
-        epilogues: &HashMap<&'static str, Recorder>,
+        prologues: &HashMap<String, Recorder>,
+        epilogues: &HashMap<String, Recorder>,
         name: Option<&str>,
         prefix: Option<&str>,
         bytes: &mut &[u8],
@@ -433,8 +429,8 @@ impl<T: Write> Dumper<T> {
 
     fn dump_recorder(
         &mut self,
-        prologues: &HashMap<&'static str, Recorder>,
-        epilogues: &HashMap<&'static str, Recorder>,
+        prologues: &HashMap<String, Recorder>,
+        epilogues: &HashMap<String, Recorder>,
         recorder: &Recorder,
     ) -> Result<()> {
         let mut bytes = recorder.encoded_content();
@@ -443,8 +439,8 @@ impl<T: Write> Dumper<T> {
 
     fn dump_content(
         &mut self,
-        prologues: &HashMap<&'static str, Recorder>,
-        epilogues: &HashMap<&'static str, Recorder>,
+        prologues: &HashMap<String, Recorder>,
+        epilogues: &HashMap<String, Recorder>,
         bytes: &mut &[u8],
         in_context: bool,
     ) -> Result<()> {

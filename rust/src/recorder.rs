@@ -15,7 +15,7 @@ pub struct Recorder {
 
 impl Recorder {
     /// Start recording by encoding the root context immediately.
-    pub fn new(prefix: Option<&'static str>, name: Option<&'static str>) -> Result<Self> {
+    pub fn new(prefix: Option<&str>, name: Option<&str>) -> Result<Self> {
         let mut recorder = Self::default();
         recorder.open_context(prefix, name)?;
         Ok(recorder)
@@ -37,11 +37,7 @@ impl Recorder {
         Indentation::Decrement(1).to_bytes(&mut self.encoded_content)
     }
 
-    pub fn open_context(
-        &mut self,
-        prefix: Option<&'static str>,
-        name: Option<&'static str>,
-    ) -> Result<()> {
+    pub fn open_context(&mut self, prefix: Option<&str>, name: Option<&str>) -> Result<()> {
         Context::new(prefix, name).to_bytes(&mut self.encoded_content)?;
         self.context_depth += 1;
         Ok(())
