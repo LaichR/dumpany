@@ -12,6 +12,9 @@ mod dumpany {
     use crate::operations::NewLine;
 
     #[pymodule_export]
+    use crate::operations::Join;
+
+    #[pymodule_export]
     #[allow(non_upper_case_globals)]
     const __version__: &str = env!("CARGO_PKG_VERSION");
 }

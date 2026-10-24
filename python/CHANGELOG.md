@@ -10,4 +10,5 @@
 - Explicit finalization without closing the supplied stream.
 - Recursive dumping of iterables and string representations of Python objects.
 - Newline operations using `...` or `NewLine` with optional indentation changes.
+- Lazy `Join` operations with recursively dispatched items and delimiters.
 - Detection of iterable cycles and excessive nesting during dumping.
