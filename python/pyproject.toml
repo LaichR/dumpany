@@ -6,6 +6,7 @@ build-backend = "maturin"
 name = "dumpany"
 dynamic = ["version"]
 description = "A stateful, streaming text dumper for structured, width-aware text generation"
+readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 classifiers = [
