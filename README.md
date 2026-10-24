@@ -1,96 +1,39 @@
 # dumpany
+
 A stateful, streaming text dumper for structured, width-aware text generation.
 
-## Workspace layout
+## Packages
 
-The root `Cargo.toml` is a virtual workspace with two member packages:
+- [Rust crate](rust/README.md): the `dumpany` library, with structured contexts,
+  formatting, and composable dump operations. [Changelog](rust/CHANGELOG.md).
+- [Python extension](python/README.md): the `dumpany` native extension, implemented
+  in Rust with PyO3. [Changelog](python/CHANGELOG.md).
 
-- `rust/`: the `dumpany` Rust library, including its tests and fixtures.
-- `python/`: the `dumpany-python` PyO3 binding crate, built with maturin as the
-  importable `dumpany` native extension, with no Python implementation
-  code. It depends on the Rust library and provides a
-  separate Python interface, with its own version and release lifecycle.
+The packages have independent versions and release cycles. No releases have been
+tagged yet; each package's changelog summarizes its initial feature set under
+`Unreleased`, rather than listing intermediate development changes.
 
-The workspace shares a root `Cargo.lock` and `target/` directory. Root-level
-Cargo commands target the Rust library by default; use `--workspace` to select
-both packages or `-p dumpany-python` to select the bindings.
+## Workspace development
 
-## Rust writer ownership
+The root `Cargo.toml` is a virtual workspace containing `rust/` and `python/`.
+They share a root `Cargo.lock` and `target/` directory. The Python binding crate
+is named `dumpany-python`; its Python distribution and import name are `dumpany`.
 
-`Dumper::new(writer, config)` takes its writer directly, without shared ownership.
-Pass an owned writer or `&mut writer` to borrow one. `get_ref()` inspects the
-writer without flushing buffered text.
-
-`into_inner()` consumes the dumper, finalizes pending output with `dump_all()`,
-and returns the writer. Already-finalized dumps are not flushed again. On
-failure, pending output is discarded. `IntoInnerError::error()` exposes the
-original I/O error and `into_inner()` recovers only the writer. Alternatively,
-the error's `into_parts()` recovers both the error and writer without retrying
-failed writes. The writer may contain a partial line or UTF-8 sequence.
-The dumper is `Send` when its writer is `Send`.
-
-## Python package (scaffolding)
-
-The API is implemented entirely in Rust. Maturin generates a minimal Python
-import shim in the wheel; no Python package source is maintained here. Python
-files under `python/tests/` only test the installed extension.
-
-The Python module exposes `dumpany.__version__` and a minimal `dumpany.Dumper`
-supporting text output to a Python text stream:
-
-```python
-import io
-from dumpany import Dumper
-
-stream = io.StringIO()
-dumper = Dumper(stream)
-dumper.text("hello")
-dumper.dump_all()  # Emits buffered text and flushes; does not close the stream.
-assert stream.getvalue() == "hello\n"
-```
-
-`text()` accepts strings. `dump_all()` finalizes the dumper; subsequent calls
-to `text()` fail. Contexts and other dump operations are not exposed yet.
-
-The constructor accepts keyword-only configuration: `Dumper(stream,
-line_width=120, new_line="\n")`. For example, use `new_line="\r\n"` for
-Windows-style line endings. Indentation retains the Rust default of four spaces.
-
-The Rust-side `PythonWriter` adapter accepts Python text streams such as
-`io.StringIO` and `sys.stdout` for use with the Dumper. It forwards writes and
-flushes without closing the stream, and preserves Python exceptions in I/O
-errors. Each write must contain complete UTF-8.
-
-With Python 3.10+ and Rust installed, from the repository root:
+Root-level Cargo commands target the Rust library by default. Use `--workspace`
+to select both packages or `-p dumpany-python` to select the bindings.
 
 ```sh
-python -m venv .venv
-# Activate .venv using your shell's activation command.
-python -m pip install "maturin>=1.9,<2" pytest
-cargo test --locked -p dumpany-python
-maturin develop --manifest-path python/Cargo.toml
-python -m pytest python/tests
-maturin build --release --locked --manifest-path python/Cargo.toml --out dist
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked
 ```
 
-The Python workflow builds and tests CPython stable-ABI wheels for Linux x86-64 and ARM64,
-Windows x86-64, and macOS ARM64, plus a source distribution. Wheels support
-standard CPython 3.10+ (not free-threaded Python). Build artifacts are uploaded
-to GitHub Actions; nothing is published to PyPI.
+See the package READMEs for API examples, package-specific tests, and Python
+build instructions.
 
-## Tests
+## Continuous integration
 
-Run all tests with `cargo test`, or a feature suite with, for example,
-`cargo test --test finalization`.
-
-- `rust/tests/formatting.rs`: text, wrapping, indentation, and output fixtures.
-- `rust/tests/contexts.rs`: context lifecycle and scoped cleanup.
-- `rust/tests/targets.rs`: prologues, epilogues, and target routing.
-- `rust/tests/composition.rs`: iterators, joins, and tuples.
-- `rust/tests/finalization.rs`: finalization and writer failures.
-- `rust/tests/common/mod.rs`: test writers and fixture helpers.
-
-Add public API tests to the appropriate integration suite. Tests needing private
-implementation access belong in `rust/src/<module>/tests.rs`, declared by the parent
-module with `#[cfg(test)] mod tests;`. Expected output lives in `rust/test-data/check/`;
-fixture tests write actual output to `rust/test-data/result/`.
+The Rust workflow checks formatting, runs Clippy, and tests the library.
+The Python workflow builds and tests stable-ABI wheels for Linux x86-64 and
+ARM64, Windows x86-64, and macOS ARM64, plus a source distribution. Artifacts
+are uploaded to GitHub Actions; nothing is published to PyPI.

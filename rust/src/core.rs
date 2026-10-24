@@ -75,12 +75,12 @@ impl<T: Write> IntoInnerError<T> {
         &self.error
     }
 
-    /// Recover the writer without retrying failed output.
+    /// Return the writer as-is without retrying failed output.
     pub fn into_inner(self) -> T {
         *self.writer
     }
 
-    /// Recover the original error and writer without retrying output.
+    /// Return the original error and writer without retrying output.
     /// Any remaining buffered output is discarded.
     pub fn into_parts(self) -> (Error, T) {
         (self.error, *self.writer)
@@ -147,7 +147,7 @@ impl<T: Write> Dumper<T> {
         &self.writer
     }
 
-    /// Finalize the dump and recover its writer. On failure, the error retains
+    /// Finalize the dump and return its writer. On failure, the error retains
     /// only the writer and original error; remaining buffered output is discarded.
     /// Failed output is never retried and may leave a partial write in the writer.
     pub fn into_inner(mut self) -> std::result::Result<T, IntoInnerError<T>> {
