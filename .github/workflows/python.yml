@@ -17,8 +17,8 @@ jobs:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04-arm, windows-latest, macos-14]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.10'
       - uses: dtolnay/rust-toolchain@stable
@@ -27,7 +27,7 @@ jobs:
         env:
           PYO3_PYTHON: python
       - name: Build wheel
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@v1.51.0
         with:
           command: build
           args: --release --locked --manifest-path python/Cargo.toml --out dist
@@ -37,9 +37,9 @@ jobs:
       - run: python -m pip install pytest
       - name: Test installed wheel
         run: python -m pytest python/tests
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
-          name: wheels-${{ matrix.os }}
+          name: dumpany-wheels-${{ matrix.os }}
           path: dist/*.whl
           if-no-files-found: error
 
@@ -47,12 +47,12 @@ jobs:
     name: Source distribution
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.10'
       - name: Build source distribution
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@v1.51.0
         with:
           command: sdist
           args: --manifest-path python/Cargo.toml --out dist
@@ -60,8 +60,8 @@ jobs:
         run: python -m pip install dist/*.tar.gz pytest
       - name: Test installed source distribution
         run: python -m pytest python/tests
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
-          name: sdist
+          name: dumpany-sdist
           path: dist/*.tar.gz
           if-no-files-found: error
