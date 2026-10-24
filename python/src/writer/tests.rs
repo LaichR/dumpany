@@ -1,9 +1,7 @@
 use super::*;
 use dumpany::core::{Dumper, DumperConfig};
 use pyo3::exceptions::PyValueError;
-use std::cell::RefCell;
 use std::ffi::CString;
-use std::rc::Rc;
 
 fn stream(code: &str) -> Py<PyAny> {
     Python::initialize();
@@ -21,7 +19,7 @@ fn stream(code: &str) -> Py<PyAny> {
 fn dumper_writes_unicode_and_leaves_stream_open() {
     let stream = stream("import io\nstream = io.StringIO()");
     let writer = Python::attach(|py| PythonWriter::new(stream.clone_ref(py)));
-    let mut dumper = Dumper::new(Rc::new(RefCell::new(writer)), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     dumper.text("héllo 世界 🦀").unwrap();
     dumper.dump_all().unwrap();
     drop(dumper);

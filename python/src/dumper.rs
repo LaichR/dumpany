@@ -1,8 +1,6 @@
 use crate::writer::PythonWriter;
 use dumpany::core::{Dumper, DumperConfig};
 use pyo3::prelude::*;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 /// A text dumper writing to a Python text stream without closing it.
 #[pyclass(name = "Dumper", module = "dumpany", unsendable)]
@@ -17,7 +15,7 @@ impl PyDumper {
     fn new(stream: Py<PyAny>, line_width: usize, new_line: &str) -> Self {
         Self {
             inner: Dumper::new(
-                Rc::new(RefCell::new(PythonWriter::new(stream))),
+                PythonWriter::new(stream),
                 DumperConfig {
                     line_width,
                     new_line: new_line.to_owned(),
