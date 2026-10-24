@@ -26,5 +26,13 @@ target
 /target
 
 # Generated test output (keep the directory tracked)
-/test-data/result/*
-!/test-data/result/.gitkeep
+/rust/test-data/result/*
+!/rust/test-data/result/.gitkeep
+
+# Python builds and environments
+__pycache__/
+.pytest_cache/
+.venv/
+*.egg-info/
+/dist/
+/python/dist/
