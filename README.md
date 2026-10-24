@@ -1,19 +1,58 @@
 # dumpany
 A stateful, streaming text dumper for structured, width-aware text generation.
 
+## Workspace layout
+
+The root `Cargo.toml` is a virtual workspace with two member packages:
+
+- `rust/`: the `dumpany` Rust library, including its tests and fixtures.
+- `python/`: the `dumpany-python` PyO3 binding crate, built with maturin as the
+  importable `dumpany` native extension, with no Python implementation
+  code. It depends on the Rust library and provides a
+  separate Python interface, with its own version and release lifecycle.
+
+The workspace shares a root `Cargo.lock` and `target/` directory. Root-level
+Cargo commands target the Rust library by default; use `--workspace` to select
+both packages or `-p dumpany-python` to select the bindings.
+
+## Python package (scaffolding)
+
+The API is implemented entirely in Rust. Maturin generates a minimal Python
+import shim in the wheel; no Python package source is maintained here. Python
+files under `python/tests/` only test the installed extension.
+
+Currently only
+`dumpany.__version__` is exposed; the Dumper bindings will follow.
+
+With Python 3.10+ and Rust installed, from the repository root:
+
+```sh
+python -m venv .venv
+# Activate .venv using your shell's activation command.
+python -m pip install "maturin>=1.9,<2" pytest
+maturin develop --manifest-path python/Cargo.toml
+python -m pytest python/tests
+maturin build --release --locked --manifest-path python/Cargo.toml --out dist
+```
+
+The Python workflow builds and tests CPython stable-ABI wheels for Linux x86-64,
+Windows x86-64, and macOS ARM64, plus a source distribution. Wheels support
+standard CPython 3.10+ (not free-threaded Python). Build artifacts are uploaded
+to GitHub Actions; nothing is published to PyPI.
+
 ## Tests
 
 Run all tests with `cargo test`, or a feature suite with, for example,
 `cargo test --test finalization`.
 
-- `tests/formatting.rs`: text, wrapping, indentation, and output fixtures.
-- `tests/contexts.rs`: context lifecycle and scoped cleanup.
-- `tests/targets.rs`: prologues, epilogues, and target routing.
-- `tests/composition.rs`: iterators, joins, and tuples.
-- `tests/finalization.rs`: finalization and writer failures.
-- `tests/common/mod.rs`: shared writers and fixture helpers.
+- `rust/tests/formatting.rs`: text, wrapping, indentation, and output fixtures.
+- `rust/tests/contexts.rs`: context lifecycle and scoped cleanup.
+- `rust/tests/targets.rs`: prologues, epilogues, and target routing.
+- `rust/tests/composition.rs`: iterators, joins, and tuples.
+- `rust/tests/finalization.rs`: finalization and writer failures.
+- `rust/tests/common/mod.rs`: shared writers and fixture helpers.
 
 Add public API tests to the appropriate integration suite. Tests needing private
-implementation access belong in `src/<module>/tests.rs`, declared by the parent
-module with `#[cfg(test)] mod tests;`. Expected output lives in `test-data/check/`;
-fixture tests write actual output to `test-data/result/`.
+implementation access belong in `rust/src/<module>/tests.rs`, declared by the parent
+module with `#[cfg(test)] mod tests;`. Expected output lives in `rust/test-data/check/`;
+fixture tests write actual output to `rust/test-data/result/`.
