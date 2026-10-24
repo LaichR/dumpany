@@ -31,7 +31,7 @@ to `text()` fail; successful repeated calls to `dump_all()` do nothing. Finalize
 explicitly rather than relying on object destruction.
 
 Python stream exceptions are preserved. A failed write may leave incomplete
-output; writes are not rolled back. Contexts and joins are not exposed yet.
+output; writes are not rolled back. Contexts are not exposed yet.
 The module also exposes `dumpany.__version__`.
 
 ## Composing dump operations
@@ -40,7 +40,7 @@ The module also exposes `dumpany.__version__`.
 arbitrary objects converted with Python's `str()`:
 
 ```python
-from dumpany import NewLine
+from dumpany import Join, NewLine
 
 dumper = Dumper(stream)
 dumper.dump([
@@ -64,6 +64,21 @@ over `__str__`. Active iterable cycles raise `ValueError`, and nesting beyond
 100 iterable levels raises `RecursionError`. Repeated non-cyclic references are
 allowed. Conversion and iteration exceptions propagate; preceding output is
 not rolled back.
+
+`Join(delimiter, iterable)` dumps items with a delimiter only between items:
+
+```python
+dumper.dump(Join(", ", ["red", "green", "blue"]))
+dumper.dump(...)
+dumper.dump(Join(..., ["first row", "second row"]))
+```
+
+Items and delimiters use the same recursive dispatch as `dump()`, so delimiters
+can also be operation lists. Empty iterables emit nothing. Iteration starts only
+when the operation is dumped; a join holding a generator or other one-shot
+iterator is effectively one-shot. Join operations and their iterables participate
+in cycle detection and the nesting limit. An explicitly supplied string iterable
+is traversed by `Join`, while string and bytes-like items remain atomic.
 
 ## Build and test
 
