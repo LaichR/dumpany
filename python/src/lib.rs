@@ -1,11 +1,15 @@
 /// Python interface to the dumpany Rust library.
 mod dumper;
+mod operations;
 pub mod writer;
 
 #[pyo3::pymodule]
 mod dumpany {
     #[pymodule_export]
     use crate::dumper::PyDumper;
+
+    #[pymodule_export]
+    use crate::operations::NewLine;
 
     #[pymodule_export]
     #[allow(non_upper_case_globals)]

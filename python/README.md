@@ -31,8 +31,39 @@ to `text()` fail; successful repeated calls to `dump_all()` do nothing. Finalize
 explicitly rather than relying on object destruction.
 
 Python stream exceptions are preserved. A failed write may leave incomplete
-output; writes are not rolled back. Contexts and other dump operations are not
-exposed yet. The module also exposes `dumpany.__version__`.
+output; writes are not rolled back. Contexts and joins are not exposed yet.
+The module also exposes `dumpany.__version__`.
+
+## Composing dump operations
+
+`dump(value)` accepts newline operations, recursively nested iterables, and
+arbitrary objects converted with Python's `str()`:
+
+```python
+from dumpany import NewLine
+
+dumper = Dumper(stream)
+dumper.dump([
+    "Heading", NewLine(increment=1),
+    ["Count: ", 42], ...,
+    "Done", NewLine(decrement=1),
+])
+dumper.dump_all()
+```
+
+`...` and `NewLine()` emit a newline without changing indentation.
+`NewLine(increment=1)` and `NewLine(decrement=1)` change indentation after
+emitting the line. Counts are integers from 0 to 255; supplying both keywords
+is an error.
+
+Strings and bytes-like objects (`bytes`, `bytearray`, `memoryview`) are atomic:
+they use their string representation rather than iterating or implicitly
+decoding bytes. Other iterables, including generators, are traversed without
+implicit separators; mappings yield their keys. Iteration takes precedence
+over `__str__`. Active iterable cycles raise `ValueError`, and nesting beyond
+100 iterable levels raises `RecursionError`. Repeated non-cyclic references are
+allowed. Conversion and iteration exceptions propagate; preceding output is
+not rolled back.
 
 ## Build and test
 

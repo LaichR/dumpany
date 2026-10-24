@@ -1,6 +1,9 @@
 use crate::writer::PythonWriter;
 use dumpany::core::{Dumper, DumperConfig};
 use pyo3::prelude::*;
+use std::collections::HashSet;
+
+mod dispatch;
 
 /// A text dumper writing to a Python text stream without closing it.
 #[pyclass(name = "Dumper", module = "dumpany", unsendable)]
@@ -28,6 +31,12 @@ impl PyDumper {
     /// Append text to the dump. Output may be buffered until dump_all().
     fn text(&mut self, text: &str) -> PyResult<()> {
         self.inner.text(text).map_err(PyErr::from)
+    }
+
+    /// Dump text, newline operations, or recursively nested iterables.
+    /// Other values use str(); mappings iterate over their keys.
+    fn dump(slf: &Bound<'_, Self>, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        dispatch::dispatch(slf, value, &mut HashSet::new())
     }
 
     /// Emit pending text and flush, but never close, the stream.
