@@ -15,12 +15,12 @@ use tuple_list::tuple_list;
 fn iterator_dumps_empty_single_and_multiple_sequences() -> Result<()> {
     for (count, expected) in [(0, ""), (1, "1\n"), (3, "123\n")] {
         let writer = memory_writer();
-        let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+        let mut dumper = Dumper::new(writer, DumperConfig::default());
         dumper.iterator((1..=count).map(Text))?;
         if count > 0 {
             dumper.new_line(None)?;
         }
-        assert_eq!(&*writer.borrow(), expected.as_bytes());
+        assert_eq!(dumper.get_ref(), expected.as_bytes());
     }
     Ok(())
 }
@@ -29,12 +29,12 @@ fn iterator_dumps_empty_single_and_multiple_sequences() -> Result<()> {
 fn join_emits_delimiters_only_between_elements() -> Result<()> {
     for (count, expected) in [(0, ""), (1, "1\n"), (3, "1,2,3\n")] {
         let writer = memory_writer();
-        let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+        let mut dumper = Dumper::new(writer, DumperConfig::default());
         dumper.join((1..=count).map(Text), Text(","))?;
         if count > 0 {
             dumper.new_line(None)?;
         }
-        assert_eq!(&*writer.borrow(), expected.as_bytes());
+        assert_eq!(dumper.get_ref(), expected.as_bytes());
     }
     Ok(())
 }
@@ -42,13 +42,13 @@ fn join_emits_delimiters_only_between_elements() -> Result<()> {
 #[test]
 fn join_accepts_structured_delimiters() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     dumper.join(
         [Text("first"), Text("second"), Text("third")],
         NewLine(None),
     )?;
     dumper.new_line(None)?;
-    assert_eq!(&*writer.borrow(), b"first\nsecond\nthird\n");
+    assert_eq!(dumper.get_ref(), b"first\nsecond\nthird\n");
     Ok(())
 }
 
@@ -121,27 +121,27 @@ fn join_stops_on_item_or_delimiter_errors() {
 #[test]
 fn empty_tuple_emits_nothing() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     tuple_list!().dump_head_tail(&mut dumper)?;
     dumper.tuple(tuple_list!())?;
-    assert!(writer.borrow().is_empty());
+    assert!(dumper.get_ref().is_empty());
     Ok(())
 }
 
 #[test]
 fn single_element_is_dumped() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     dumper.tuple(tuple_list!(Text("hello")))?;
     dumper.new_line(None)?;
-    assert_eq!(&*writer.borrow(), b"hello\n");
+    assert_eq!(dumper.get_ref(), b"hello\n");
     Ok(())
 }
 
 #[test]
 fn heterogeneous_elements_are_dumped_in_order() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     dumper.tuple(tuple_list!(
         Text("answer: "),
         Text(42),
@@ -149,18 +149,18 @@ fn heterogeneous_elements_are_dumped_in_order() -> Result<()> {
         Text("done"),
     ))?;
     dumper.new_line(None)?;
-    assert_eq!(&*writer.borrow(), b"answer: 42\ndone\n");
+    assert_eq!(dumper.get_ref(), b"answer: 42\ndone\n");
     Ok(())
 }
 
 #[test]
 fn tuple_list_can_be_dumped_repeatedly() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     let items = tuple_list!(Text("hello"), NewLine(None));
     items.dump_head_tail(&mut dumper)?;
     items.dump_head_tail(&mut dumper)?;
-    assert_eq!(&*writer.borrow(), b"hello\nhello\n");
+    assert_eq!(dumper.get_ref(), b"hello\nhello\n");
     Ok(())
 }
 

@@ -2,11 +2,9 @@ use crate::core::Indentation::{Decrement, Increment};
 use crate::dump_tuple::DumpHeadTail;
 use crate::operations::{FromBytes, Operation};
 use crate::recorder::Recorder;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{Error, ErrorKind, Result, Write};
-use std::rc::Rc;
 
 const DEFAULT_WIDTH: usize = 120_usize;
 
@@ -53,7 +51,7 @@ enum DumperState {
 
 pub struct Dumper<T: Write> {
     state: DumperState,
-    writer: Rc<RefCell<T>>,
+    writer: T,
     indent: usize,
     config: DumperConfig,
     recorder: Option<Recorder>,
@@ -63,6 +61,50 @@ pub struct Dumper<T: Write> {
     current_line: String,
     left_margin: Vec<usize>,
     in_section: bool,
+}
+
+/// A finalization error that retains the writer, discarding pending output.
+/// The writer may contain a partial write, not necessarily a complete line.
+pub struct IntoInnerError<T: Write> {
+    error: Error,
+    writer: Box<T>,
+}
+
+impl<T: Write> IntoInnerError<T> {
+    pub fn error(&self) -> &Error {
+        &self.error
+    }
+
+    /// Recover the writer without retrying failed output.
+    pub fn into_inner(self) -> T {
+        *self.writer
+    }
+
+    /// Recover the original error and writer without retrying output.
+    /// Any remaining buffered output is discarded.
+    pub fn into_parts(self) -> (Error, T) {
+        (self.error, *self.writer)
+    }
+}
+
+impl<T: Write> std::fmt::Debug for IntoInnerError<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IntoInnerError")
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T: Write> std::fmt::Display for IntoInnerError<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl<T: Write> std::error::Error for IntoInnerError<T> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -84,7 +126,7 @@ impl<T: Display> Dump for Text<T> {
 }
 
 impl<T: Write> Dumper<T> {
-    pub fn new(writer: Rc<RefCell<T>>, config: DumperConfig) -> Self {
+    pub fn new(writer: T, config: DumperConfig) -> Self {
         Self {
             state: DumperState::Active,
             writer,
@@ -100,6 +142,24 @@ impl<T: Write> Dumper<T> {
         }
     }
 
+    /// Borrow the writer without flushing buffered output.
+    pub fn get_ref(&self) -> &T {
+        &self.writer
+    }
+
+    /// Finalize the dump and recover its writer. On failure, the error retains
+    /// only the writer and original error; remaining buffered output is discarded.
+    /// Failed output is never retried and may leave a partial write in the writer.
+    pub fn into_inner(mut self) -> std::result::Result<T, IntoInnerError<T>> {
+        match self.dump_all() {
+            Ok(()) => Ok(self.writer),
+            Err(error) => Err(IntoInnerError {
+                error,
+                writer: Box::new(self.writer),
+            }),
+        }
+    }
+
     fn ensure_active(&self) -> Result<()> {
         match self.state {
             DumperState::Active => Ok(()),
@@ -108,7 +168,7 @@ impl<T: Write> Dumper<T> {
         }
     }
 
-    /// Close all contexts, emit a pending line, and flush the borrowed/shared writer.
+    /// Close all contexts, emit a pending line, and flush the writer.
     /// Never closes the writer. Successful repeated calls do nothing; failures are
     /// terminal because output may already have been partially written.
     pub fn dump_all(&mut self) -> Result<()> {
@@ -129,7 +189,7 @@ impl<T: Write> Dumper<T> {
             if !self.current_line.is_empty() {
                 self.flush_line()?;
             }
-            self.writer.borrow_mut().flush()
+            self.writer.flush()
         })();
         self.state = if result.is_ok() {
             DumperState::Finalized
@@ -476,10 +536,7 @@ impl<T: Write> Dumper<T> {
             self.current_line = self.current_line.trim_end().into();
         }
         self.current_line.push_str(&self.config.new_line);
-        let result = self
-            .writer
-            .borrow_mut()
-            .write_all(self.current_line.as_bytes());
+        let result = self.writer.write_all(self.current_line.as_bytes());
         if let Err(error) = result {
             self.state = DumperState::Failed;
             return Err(error);

@@ -15,14 +15,46 @@ The workspace shares a root `Cargo.lock` and `target/` directory. Root-level
 Cargo commands target the Rust library by default; use `--workspace` to select
 both packages or `-p dumpany-python` to select the bindings.
 
+## Rust writer ownership
+
+`Dumper::new(writer, config)` takes its writer directly, without shared ownership.
+Pass an owned writer or `&mut writer` to borrow one. `get_ref()` inspects the
+writer without flushing buffered text.
+
+`into_inner()` consumes the dumper, finalizes pending output with `dump_all()`,
+and returns the writer. Already-finalized dumps are not flushed again. On
+failure, pending output is discarded. `IntoInnerError::error()` exposes the
+original I/O error and `into_inner()` recovers only the writer. Alternatively,
+the error's `into_parts()` recovers both the error and writer without retrying
+failed writes. The writer may contain a partial line or UTF-8 sequence.
+The dumper is `Send` when its writer is `Send`.
+
 ## Python package (scaffolding)
 
 The API is implemented entirely in Rust. Maturin generates a minimal Python
 import shim in the wheel; no Python package source is maintained here. Python
 files under `python/tests/` only test the installed extension.
 
-Currently only
-`dumpany.__version__` is exposed; the Dumper bindings will follow.
+The Python module exposes `dumpany.__version__` and a minimal `dumpany.Dumper`
+supporting text output to a Python text stream:
+
+```python
+import io
+from dumpany import Dumper
+
+stream = io.StringIO()
+dumper = Dumper(stream)
+dumper.text("hello")
+dumper.dump_all()  # Emits buffered text and flushes; does not close the stream.
+assert stream.getvalue() == "hello\n"
+```
+
+`text()` accepts strings. `dump_all()` finalizes the dumper; subsequent calls
+to `text()` fail. Contexts and other dump operations are not exposed yet.
+
+The constructor accepts keyword-only configuration: `Dumper(stream,
+line_width=120, new_line="\n")`. For example, use `new_line="\r\n"` for
+Windows-style line endings. Indentation retains the Rust default of four spaces.
 
 The Rust-side `PythonWriter` adapter accepts Python text streams such as
 `io.StringIO` and `sys.stdout` for use with the Dumper. It forwards writes and
@@ -56,7 +88,7 @@ Run all tests with `cargo test`, or a feature suite with, for example,
 - `rust/tests/targets.rs`: prologues, epilogues, and target routing.
 - `rust/tests/composition.rs`: iterators, joins, and tuples.
 - `rust/tests/finalization.rs`: finalization and writer failures.
-- `rust/tests/common/mod.rs`: shared writers and fixture helpers.
+- `rust/tests/common/mod.rs`: test writers and fixture helpers.
 
 Add public API tests to the appropriate integration suite. Tests needing private
 implementation access belong in `rust/src/<module>/tests.rs`, declared by the parent
