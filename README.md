@@ -21,8 +21,26 @@ The API is implemented entirely in Rust. Maturin generates a minimal Python
 import shim in the wheel; no Python package source is maintained here. Python
 files under `python/tests/` only test the installed extension.
 
-Currently only
-`dumpany.__version__` is exposed; the Dumper bindings will follow.
+The Python module exposes `dumpany.__version__` and a minimal `dumpany.Dumper`
+supporting text output to a Python text stream:
+
+```python
+import io
+from dumpany import Dumper
+
+stream = io.StringIO()
+dumper = Dumper(stream)
+dumper.text("hello")
+dumper.dump_all()  # Emits buffered text and flushes; does not close the stream.
+assert stream.getvalue() == "hello\n"
+```
+
+`text()` accepts strings. `dump_all()` finalizes the dumper; subsequent calls
+to `text()` fail. Contexts and other dump operations are not exposed yet.
+
+The constructor accepts keyword-only configuration: `Dumper(stream,
+line_width=120, new_line="\n")`. For example, use `new_line="\r\n"` for
+Windows-style line endings. Indentation retains the Rust default of four spaces.
 
 The Rust-side `PythonWriter` adapter accepts Python text streams such as
 `io.StringIO` and `sys.stdout` for use with the Dumper. It forwards writes and
