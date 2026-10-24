@@ -24,12 +24,18 @@ files under `python/tests/` only test the installed extension.
 Currently only
 `dumpany.__version__` is exposed; the Dumper bindings will follow.
 
+The Rust-side `PythonWriter` adapter accepts Python text streams such as
+`io.StringIO` and `sys.stdout` for use with the Dumper. It forwards writes and
+flushes without closing the stream, and preserves Python exceptions in I/O
+errors. Each write must contain complete UTF-8.
+
 With Python 3.10+ and Rust installed, from the repository root:
 
 ```sh
 python -m venv .venv
 # Activate .venv using your shell's activation command.
 python -m pip install "maturin>=1.9,<2" pytest
+cargo test --locked -p dumpany-python
 maturin develop --manifest-path python/Cargo.toml
 python -m pytest python/tests
 maturin build --release --locked --manifest-path python/Cargo.toml --out dist

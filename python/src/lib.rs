@@ -1,4 +1,6 @@
 /// Python interface to the dumpany Rust library.
+pub mod writer;
+
 #[pyo3::pymodule]
 mod dumpany {
     #[pymodule_export]

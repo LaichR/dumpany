@@ -7,7 +7,6 @@ publish = false
 [lib]
 name = "dumpany"
 crate-type = ["cdylib"]
-test = false
 doctest = false
 
 [dependencies]
