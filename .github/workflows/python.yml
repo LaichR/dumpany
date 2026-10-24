@@ -22,6 +22,10 @@ jobs:
         with:
           python-version: '3.10'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Test Python stream adapter
+        run: cargo test --locked -p dumpany-python
+        env:
+          PYO3_PYTHON: python
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
