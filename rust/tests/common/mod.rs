@@ -1,23 +1,21 @@
 #![allow(dead_code)]
 
 use std::{
-    cell::RefCell,
     fs,
     io::{self, ErrorKind, Result, Write},
     path::Path,
-    rc::Rc,
 };
 
-pub fn memory_writer() -> Rc<RefCell<Vec<u8>>> {
-    Rc::new(RefCell::new(Vec::new()))
+pub fn memory_writer() -> Vec<u8> {
+    Vec::new()
 }
 
-pub fn result_writer(test_name: &str) -> Result<Rc<RefCell<fs::File>>> {
+pub fn result_writer(test_name: &str) -> Result<fs::File> {
     let test_data = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data");
     let result_dir = test_data.join("result");
     fs::create_dir_all(&result_dir)?;
     let file = fs::File::create(result_dir.join(format!("{}.txt", test_name)))?;
-    Ok(Rc::new(RefCell::new(file)))
+    Ok(file)
 }
 
 pub fn check_result(test_name: &str) {

@@ -8,41 +8,41 @@ use std::io::{Error, ErrorKind, Result};
 #[test]
 fn unnamed_contexts_remain_usable_without_sections() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     Context::new(None, None).with(&mut dumper, |d| {
         for text in ["first", "second"] {
             Context::new(None, None).with(d, |d| d.text(text))?;
         }
         Ok(())
     })?;
-    assert_eq!(&*writer.borrow(), b"first\nsecond\n\n");
+    assert_eq!(dumper.get_ref(), b"first\nsecond\n\n");
     Ok(())
 }
 
 #[test]
 fn scoped_contexts_nest_and_return_values() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     let value = Context::new(Some("- "), None).with(&mut dumper, |d| {
         Context::new(Some("* "), None).with(d, |d| d.text("hello"))?;
         Ok(42)
     })?;
     assert_eq!(value, 42);
-    assert_eq!(&*writer.borrow(), b"- * hello\n\n");
+    assert_eq!(dumper.get_ref(), b"- * hello\n\n");
     Ok(())
 }
 
 #[test]
 fn scoped_context_closes_after_body_error() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     let error = Context::new(Some("- "), None)
         .with(&mut dumper, |_| Err::<(), _>(Error::other("body failed")))
         .unwrap_err();
     assert_eq!(error.to_string(), "body failed");
     dumper.text("after")?;
     dumper.new_line(None)?;
-    assert_eq!(&*writer.borrow(), b"-\nafter\n");
+    assert_eq!(dumper.get_ref(), b"-\nafter\n");
     Ok(())
 }
 

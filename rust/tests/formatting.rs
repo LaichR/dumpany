@@ -66,7 +66,7 @@ fn test_context_text_dump() {
 #[test]
 fn text_accepts_display_directly_and_inside_contexts() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     dumper.text(42)?;
     dumper.text(format_args!(" = {}", "answer"))?;
     dumper.new_line(None)?;
@@ -74,6 +74,6 @@ fn text_accepts_display_directly_and_inside_contexts() -> Result<()> {
         d.text(42)?;
         d.text(format_args!(" = {}", "answer"))
     })?;
-    assert_eq!(&*writer.borrow(), b"42 = answer\n42 = answer\n");
+    assert_eq!(dumper.get_ref(), b"42 = answer\n42 = answer\n");
     Ok(())
 }

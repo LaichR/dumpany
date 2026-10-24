@@ -8,10 +8,10 @@ use std::io::{Error, ErrorKind, Result};
 #[test]
 fn closed_children_remain_targetable_until_flush() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     Context::new(None, Some("root")).with(&mut dumper, |d| {
         Context::new(None, Some("child")).with(d, |d| d.text("body"))?;
-        assert!(writer.borrow().is_empty());
+        assert!(d.get_ref().is_empty());
         assert_eq!(
             d.open_context(None, Some("child")).unwrap_err().kind(),
             ErrorKind::AlreadyExists
@@ -21,9 +21,9 @@ fn closed_children_remain_targetable_until_flush() -> Result<()> {
         d.with_target(Target::Epilogue("child"), |d| d.text(":after"))?;
         d.text("tail")
     })?;
-    assert_eq!(&*writer.borrow(), b"before:again:body:after\ntail\n");
+    assert_eq!(dumper.get_ref(), b"before:again:body:after\ntail\n");
     Context::new(None, Some("child")).with(&mut dumper, |_| Ok(()))?;
-    assert_eq!(&*writer.borrow(), b"before:again:body:after\ntail\n\n");
+    assert_eq!(dumper.get_ref(), b"before:again:body:after\ntail\n\n");
     Ok(())
 }
 
@@ -31,7 +31,7 @@ fn closed_children_remain_targetable_until_flush() -> Result<()> {
 fn flush_failure_clears_names_and_section_recorders() -> Result<()> {
     let writer = memory_writer();
     let mut dumper = Dumper::new(
-        writer.clone(),
+        writer,
         DumperConfig {
             line_width: 1,
             ..DumperConfig::default()
@@ -50,7 +50,7 @@ fn flush_failure_clears_names_and_section_recorders() -> Result<()> {
             .is_err()
     );
     Context::new(None, Some("root")).with(&mut dumper, |_| Ok(()))?;
-    assert_eq!(&*writer.borrow(), b"too long\n");
+    assert_eq!(dumper.get_ref(), b"too long\n");
     Ok(())
 }
 
@@ -58,7 +58,7 @@ fn flush_failure_clears_names_and_section_recorders() -> Result<()> {
 fn section_selection_is_not_reentrant_and_sections_are_independent() -> Result<()> {
     for outer in [Target::Prologue("root"), Target::Epilogue("root")] {
         let writer = memory_writer();
-        let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+        let mut dumper = Dumper::new(writer, DumperConfig::default());
         Context::new(None, Some("root")).with(&mut dumper, |d| {
             d.with_target(outer, |d| {
                 for inner in [Target::Prologue("root"), Target::Epilogue("root")] {
@@ -80,7 +80,7 @@ fn section_selection_is_not_reentrant_and_sections_are_independent() -> Result<(
             Target::Prologue(_) => b"sectionbody\n",
             Target::Epilogue(_) => b"bodysection\n",
         };
-        assert_eq!(&*writer.borrow(), expected);
+        assert_eq!(dumper.get_ref(), expected);
     }
     Ok(())
 }
@@ -88,7 +88,7 @@ fn section_selection_is_not_reentrant_and_sections_are_independent() -> Result<(
 #[test]
 fn section_contexts_cannot_select_another_target() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     Context::new(None, Some("root")).with(&mut dumper, |d| {
         d.with_target(Target::Prologue("root"), |d| {
             d.text("a")?;
@@ -104,7 +104,7 @@ fn section_contexts_cannot_select_another_target() -> Result<()> {
         })?;
         d.text("body")
     })?;
-    assert_eq!(&*writer.borrow(), b"ab\ndbody\n");
+    assert_eq!(dumper.get_ref(), b"ab\ndbody\n");
     Ok(())
 }
 
@@ -112,7 +112,7 @@ fn section_contexts_cannot_select_another_target() -> Result<()> {
 fn sections_buffer_newlines_and_allow_nested_contexts() -> Result<()> {
     use dumpany::core::Target;
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     Context::new(None, Some("root")).with(&mut dumper, |d| {
         d.text("body")?;
         d.with_target(Target::Prologue("root"), |d| {
@@ -121,10 +121,10 @@ fn sections_buffer_newlines_and_allow_nested_contexts() -> Result<()> {
             d.text("before")?;
             d.new_line(None)
         })?;
-        assert!(writer.borrow().is_empty());
+        assert!(d.get_ref().is_empty());
         d.with_target(Target::Epilogue("root"), |d| d.text("after"))
     })?;
-    assert_eq!(&*writer.borrow(), b"header\nbefore\nbodyafter\n");
+    assert_eq!(dumper.get_ref(), b"header\nbefore\nbodyafter\n");
     Ok(())
 }
 
@@ -132,7 +132,7 @@ fn sections_buffer_newlines_and_allow_nested_contexts() -> Result<()> {
 fn scoped_targets_restore_output_and_render_sections_in_order() -> Result<()> {
     use dumpany::core::Target;
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer.clone(), DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default());
     assert!(
         dumper
             .with_target(Target::Prologue("root"), |_| Ok(()))
@@ -165,7 +165,7 @@ fn scoped_targets_restore_output_and_render_sections_in_order() -> Result<()> {
         );
         d.text("tail")
     })?;
-    assert_eq!(&*writer.borrow(), b"before:bodytailafter!\n");
+    assert_eq!(dumper.get_ref(), b"before:bodytailafter!\n");
     // The flushed namespace no longer prevents reuse of the name.
     Context::new(None, Some("root")).with(&mut dumper, |_| Ok(()))?;
     Ok(())
