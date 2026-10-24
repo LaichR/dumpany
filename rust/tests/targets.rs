@@ -6,6 +6,40 @@ use dumpany::core::{Dumper, DumperConfig, Target};
 use std::io::{Error, ErrorKind, Result};
 
 #[test]
+fn runtime_names_and_prefixes_outlive_their_sources() -> Result<()> {
+    let mut dumper = Dumper::new(Vec::new(), DumperConfig::default());
+    dumper.open_context(None, None)?;
+    {
+        let name = String::from("runtime");
+        let prefix = String::from("- ");
+        dumper.open_context(Some(&prefix), Some(&name))?;
+        dumper.text("body")?;
+        dumper.close_context()?;
+    }
+    let name = String::from("runtime");
+    assert_eq!(
+        dumper.open_context(None, Some(&name)).unwrap_err().kind(),
+        ErrorKind::AlreadyExists
+    );
+    dumper.with_target(Target::Prologue(&name), |d| d.text("before:"))?;
+    dumper.with_target(Target::Epilogue(&name), |d| d.text(":after"))?;
+    drop(name);
+    dumper.close_context()?;
+    assert_eq!(dumper.get_ref(), b"- before:body:after\n\n");
+
+    // Root flushing releases owned names and allows an equal runtime name again.
+    let name = String::from("runtime");
+    dumper.open_context(None, Some(&name))?;
+    drop(name);
+    dumper.text("reused")?;
+    assert_eq!(
+        dumper.into_inner().unwrap(),
+        b"- before:body:after\n\nreused\n"
+    );
+    Ok(())
+}
+
+#[test]
 fn closed_children_remain_targetable_until_flush() -> Result<()> {
     let writer = memory_writer();
     let mut dumper = Dumper::new(writer, DumperConfig::default());
