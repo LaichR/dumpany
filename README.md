@@ -35,7 +35,7 @@ python -m pytest python/tests
 maturin build --release --locked --manifest-path python/Cargo.toml --out dist
 ```
 
-The Python workflow builds and tests CPython stable-ABI wheels for Linux x86-64,
+The Python workflow builds and tests CPython stable-ABI wheels for Linux x86-64 and ARM64,
 Windows x86-64, and macOS ARM64, plus a source distribution. Wheels support
 standard CPython 3.10+ (not free-threaded Python). Build artifacts are uploaded
 to GitHub Actions; nothing is published to PyPI.
