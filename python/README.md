@@ -31,7 +31,7 @@ to `text()` fail; successful repeated calls to `dump_all()` do nothing. Finalize
 explicitly rather than relying on object destruction.
 
 Python stream exceptions are preserved. A failed write may leave incomplete
-output; writes are not rolled back. Contexts are not exposed yet.
+output; writes are not rolled back.
 The module also exposes `dumpany.__version__`.
 
 ## Composing dump operations
@@ -79,6 +79,57 @@ when the operation is dumped; a join holding a generator or other one-shot
 iterator is effectively one-shot. Join operations and their iterables participate
 in cycle detection and the nesting limit. An explicitly supplied string iterable
 is traversed by `Join`, while string and bytes-like items remain atomic.
+
+## Context operations
+
+`Context(content, *, prefix=None, name=None)` controls the indentation and
+alignment of a text block independently of the normal indentation level.
+Its prefix establishes where the block's content begins; subsequent lines,
+including automatically wrapped lines, align with that content rather than
+repeating the prefix. This is useful for enumeration items, function parameters,
+and similar structural elements.
+
+Give each enumeration item its own context:
+
+```python
+import io
+from dumpany import Context, Dumper
+
+stream = io.StringIO()
+dumper = Dumper(stream, line_width=40)
+dumper.dump([
+    Context(["Build the packages", ..., "Include Rust and Python."], prefix="1. "),
+    Context(["Run the tests", ..., "Check both packages."], prefix="2. "),
+])
+dumper.dump_all()
+print(stream.getvalue(), end="")
+```
+
+Output:
+
+```text
+1. Build the packages
+   Include Rust and Python.
+2. Run the tests
+   Check both packages.
+```
+
+Closing each context ends its block and restores the enclosing alignment.
+Content can be any supported value, including a generator or iterable visitor;
+it is consumed only when the context is dumped.
+
+Names must be unique within the recorded
+root context and become available for reuse after that root is flushed. Names
+and prefixes may be dynamically created Python strings.
+
+The context closes even when its content raises; the original content exception
+takes precedence if closing also fails. Previously recorded content is not
+rolled back. Context operations participate in cycle detection, depth limits,
+and Python garbage collection, just like `Join`.
+
+This is an operation object, not a Python `with` context manager. Iterables allow
+lazy Python-side content generation, but Rust still buffers each root context's
+encoded operations until it closes.
 
 ## Build and test
 

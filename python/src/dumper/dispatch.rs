@@ -1,5 +1,5 @@
 use super::PyDumper;
-use crate::operations::{Join, NewLine};
+use crate::operations::{Join, NewLine, PyContext};
 use dumpany::core::Indentation;
 use pyo3::exceptions::{PyRecursionError, PyValueError};
 use pyo3::prelude::*;
@@ -21,6 +21,9 @@ pub(super) fn dispatch(
     }
     if value.is_instance_of::<Join>() {
         return with_active(value, active, |active| dump_join(dumper, value, active));
+    }
+    if value.is_instance_of::<PyContext>() {
+        return with_active(value, active, |active| dump_context(dumper, value, active));
     }
     if is_atomic(value) {
         return dump_text(dumper, value);
@@ -118,4 +121,33 @@ fn dump_text(dumper: &Bound<'_, PyDumper>, value: &Bound<'_, PyAny>) -> PyResult
         .inner
         .text(text)
         .map_err(PyErr::from)
+}
+
+fn dump_context(
+    dumper: &Bound<'_, PyDumper>,
+    value: &Bound<'_, PyAny>,
+    active: &mut HashSet<usize>,
+) -> PyResult<()> {
+    let py = value.py();
+    // Release all borrows before dispatching content that can call back into Python.
+    let content = {
+        let operation = value.cast::<PyContext>()?.borrow();
+        let content = operation
+            .content
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("Context has been cleared"))?
+            .clone_ref(py);
+        dumper
+            .try_borrow_mut()?
+            .inner
+            .open_context(operation.prefix.as_deref(), operation.name.as_deref())?;
+        content
+    };
+    let result = dispatch(dumper, content.bind(py), active);
+    let closed = dumper
+        .try_borrow_mut()
+        .map_err(PyErr::from)
+        .and_then(|mut dumper| dumper.inner.close_context().map_err(PyErr::from));
+    // Match Rust Context::with: the content error takes precedence over closing.
+    result.and(closed)
 }
