@@ -5,15 +5,7 @@ import pytest
 from dumpany import Dumper, NewLine
 
 
-def render(value):
-    stream = io.StringIO()
-    dumper = Dumper(stream)
-    dumper.dump(value)
-    dumper.dump_all()
-    return stream.getvalue()
-
-
-def test_nested_iterables_and_scalars():
+def test_nested_iterables_and_scalars(render):
     assert render(["Name: ", "Ada", ..., ("Count: ", 42), ...]) == (
         "Name: Ada\nCount: 42\n"
     )
@@ -23,11 +15,11 @@ def test_nested_iterables_and_scalars():
 
 
 @pytest.mark.parametrize("value", ["hello", b"hello", bytearray(b"hello"), memoryview(b"hello")])
-def test_strings_and_bytes_are_atomic(value):
+def test_strings_and_bytes_are_atomic(render, value):
     assert render(value) == str(value) + "\n"
 
 
-def test_newlines_and_indentation():
+def test_newlines_and_indentation(render):
     assert render([
         "Heading", NewLine(increment=1),
         "Indented", ..., "Still indented", NewLine(decrement=1),
@@ -35,7 +27,7 @@ def test_newlines_and_indentation():
     ]) == "Heading\n    Indented\n    Still indented\nEnd\n"
 
 
-def test_newline_validation():
+def test_newline_validation(render):
     with pytest.raises(ValueError, match="not both"):
         NewLine(increment=0, decrement=0)
     for count in [-1, 256]:
@@ -48,7 +40,7 @@ def test_newline_validation():
     assert render(["a", NewLine(increment=0), "b"]) == "a\nb\n"
 
 
-def test_cycles_but_not_repeated_references_are_rejected():
+def test_cycles_but_not_repeated_references_are_rejected(render):
     value = []
     value.append(value)
     with pytest.raises(ValueError, match="cycle"):
@@ -62,7 +54,7 @@ def test_cycles_but_not_repeated_references_are_rejected():
     assert render([shared, shared]) == "hellohello\n"
 
 
-def test_deep_nesting_is_rejected():
+def test_deep_nesting_is_rejected(render):
     value = "hello"
     for _ in range(101):
         value = [value]
@@ -70,7 +62,7 @@ def test_deep_nesting_is_rejected():
         render(value)
 
 
-def test_custom_str_and_sequence_protocol():
+def test_custom_str_and_sequence_protocol(render):
     class Label:
         def __str__(self):
             return "label"
@@ -84,7 +76,7 @@ def test_custom_str_and_sequence_protocol():
     assert render(Sequence()) == "labellabel\n"
 
 
-def test_iteration_takes_precedence_over_str():
+def test_iteration_takes_precedence_over_str(render):
     class Items:
         def __iter__(self):
             yield "items"

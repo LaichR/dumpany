@@ -4,6 +4,9 @@
 
 ### Added
 
+- Context operations with optional runtime prefixes and names, nested content,
+  and lazy iterable traversal.
+
 - Native Python extension exposing `Dumper` and package version information.
 - Text output to Python text streams, including `io.StringIO` and `sys.stdout`.
 - Configurable line width and line endings.

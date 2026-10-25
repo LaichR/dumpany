@@ -3,6 +3,9 @@ use pyo3::class::gc::{PyTraverseError, PyVisit};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+mod context;
+pub(crate) use context::PyContext;
+
 /// Lazily dump iterable items with a delimiter between them.
 #[pyclass(module = "dumpany")]
 pub struct Join {

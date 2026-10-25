@@ -7,25 +7,17 @@ import pytest
 from dumpany import Dumper, Join
 
 
-def render(value):
-    stream = io.StringIO()
-    dumper = Dumper(stream)
-    dumper.dump(value)
-    dumper.dump_all()
-    return stream.getvalue()
-
-
 @pytest.mark.parametrize("items, expected", [([], ""), (["one"], "one\n"), ([1, 2, 3], "1, 2, 3\n")])
-def test_join_items(items, expected):
+def test_join_items(render, items, expected):
     assert render(Join(", ", items)) == expected
 
 
-def test_recursive_items_and_delimiters():
+def test_recursive_items_and_delimiters(render):
     assert render(Join([",", ...], [["a", 1], ["b", 2]])) == "a1,\nb2\n"
     assert render(Join(" / ", [Join(",", [1, 2]), Join(",", [3, 4])])) == "1,2 / 3,4\n"
 
 
-def test_lazy_one_shot_generator():
+def test_lazy_one_shot_generator(render):
     calls = []
 
     def items():
@@ -40,14 +32,14 @@ def test_lazy_one_shot_generator():
     assert calls == ["started"]
 
 
-def test_reusable_join_and_atomic_iterable_items():
+def test_reusable_join_and_atomic_iterable_items(render):
     operation = Join("-", ["a", "b"])
     assert render([operation, ..., operation]) == "a-b\na-b\n"
     assert render(Join("-", "ab")) == "a-b\n"
     assert render(Join("-", [b"ab", b"cd"])) == "b'ab'-b'cd'\n"
 
 
-def test_invalid_iterable_and_iteration_error():
+def test_invalid_iterable_and_iteration_error(render):
     with pytest.raises(TypeError):
         render(Join(",", 123))
     failure = ValueError("iteration failed")
@@ -64,7 +56,7 @@ def test_invalid_iterable_and_iteration_error():
     assert stream.getvalue() == "first\n"
 
 
-def test_join_cycles_and_depth():
+def test_join_cycles_and_depth(render):
     items = []
     operation = Join(",", items)
     items.append(operation)
