@@ -1,0 +1,92 @@
+use pyo3::class::gc::{PyTraverseError, PyVisit};
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+
+/// Shared content and Python reference management for target operations.
+pub(crate) struct TargetContent {
+    name: String,
+    content: Option<Py<PyAny>>,
+}
+
+impl TargetContent {
+    fn new(name: String, content: Py<PyAny>) -> Self {
+        Self {
+            name,
+            content: Some(content),
+        }
+    }
+
+    /// Copy references before dispatch so no operation borrow spans Python callbacks.
+    pub(crate) fn snapshot(&self, py: Python<'_>) -> PyResult<(String, Py<PyAny>)> {
+        let content = self
+            .content
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("target operation has been cleared"))?;
+        Ok((self.name.clone(), content.clone_ref(py)))
+    }
+
+    fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(content) = &self.content {
+            visit.call(content)?;
+        }
+        Ok(())
+    }
+
+    fn clear(&mut self) {
+        self.content = None;
+    }
+}
+
+/// Record content before the body of a named context.
+#[pyclass(module = "dumpany")]
+pub struct Prologue {
+    pub(crate) inner: TargetContent,
+}
+
+#[pymethods]
+impl Prologue {
+    #[new]
+    #[pyo3(signature = (name, content))]
+    fn new(name: String, content: Py<PyAny>) -> Self {
+        Self {
+            inner: TargetContent::new(name, content),
+        }
+    }
+
+    /// Expose content references so Python can detect unreachable cycles.
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.inner.traverse(visit)
+    }
+
+    /// Break unreachable cycles passing through this operation.
+    fn __clear__(&mut self) {
+        self.inner.clear();
+    }
+}
+
+/// Record content after the body of a named context.
+#[pyclass(module = "dumpany")]
+pub struct Epilogue {
+    pub(crate) inner: TargetContent,
+}
+
+#[pymethods]
+impl Epilogue {
+    #[new]
+    #[pyo3(signature = (name, content))]
+    fn new(name: String, content: Py<PyAny>) -> Self {
+        Self {
+            inner: TargetContent::new(name, content),
+        }
+    }
+
+    /// Expose content references so Python can detect unreachable cycles.
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.inner.traverse(visit)
+    }
+
+    /// Break unreachable cycles passing through this operation.
+    fn __clear__(&mut self) {
+        self.inner.clear();
+    }
+}

@@ -4,6 +4,9 @@
 
 ### Added
 
+- Prologue and epilogue operations for adding content before or after named
+  context bodies while traversing their content.
+
 - Context operations with optional runtime prefixes and names, nested content,
   and lazy iterable traversal.
 

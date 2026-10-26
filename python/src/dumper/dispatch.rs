@@ -1,6 +1,6 @@
 use super::PyDumper;
-use crate::operations::{Join, NewLine, PyContext};
-use dumpany::core::Indentation;
+use crate::operations::{Epilogue, Join, NewLine, Prologue, PyContext};
+use dumpany::core::{Indentation, Target};
 use pyo3::exceptions::{PyRecursionError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyByteArray, PyBytes, PyMemoryView, PyString};
@@ -24,6 +24,28 @@ pub(super) fn dispatch(
     }
     if value.is_instance_of::<PyContext>() {
         return with_active(value, active, |active| dump_context(dumper, value, active));
+    }
+    if let Ok(operation) = value.cast::<Prologue>() {
+        let (name, content) = operation.borrow().inner.snapshot(value.py())?;
+        return with_active(value, active, |active| {
+            dump_target(
+                dumper,
+                Target::Prologue(&name),
+                content.bind(value.py()),
+                active,
+            )
+        });
+    }
+    if let Ok(operation) = value.cast::<Epilogue>() {
+        let (name, content) = operation.borrow().inner.snapshot(value.py())?;
+        return with_active(value, active, |active| {
+            dump_target(
+                dumper,
+                Target::Epilogue(&name),
+                content.bind(value.py()),
+                active,
+            )
+        });
     }
     if is_atomic(value) {
         return dump_text(dumper, value);
@@ -150,4 +172,20 @@ fn dump_context(
         .and_then(|mut dumper| dumper.inner.close_context().map_err(PyErr::from));
     // Match Rust Context::with: the content error takes precedence over closing.
     result.and(closed)
+}
+
+fn dump_target(
+    dumper: &Bound<'_, PyDumper>,
+    target: Target<'_>,
+    content: &Bound<'_, PyAny>,
+    active: &mut HashSet<usize>,
+) -> PyResult<()> {
+    dumper.try_borrow_mut()?.inner.select_target(target)?;
+    let result = dispatch(dumper, content, active);
+    // Restore main even on Python exceptions; do not replace the content error.
+    let restored = dumper
+        .try_borrow_mut()
+        .map_err(PyErr::from)
+        .and_then(|mut dumper| dumper.inner.select_main().map_err(PyErr::from));
+    result.and(restored)
 }
