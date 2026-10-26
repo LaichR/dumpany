@@ -6,6 +6,125 @@ use dumpany::core::{Dumper, DumperConfig, Target};
 use std::io::{Error, ErrorKind, Result};
 
 #[test]
+fn explicit_selection_appends_and_restores_main() -> Result<()> {
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    d.select_main()?;
+    d.open_context(None, Some("root"))?;
+    d.text("body")?;
+    let name = String::from("root");
+    d.select_target(Target::Prologue(&name))?;
+    drop(name);
+    d.text("before:")?;
+    assert_eq!(d.dump_all().unwrap_err().kind(), ErrorKind::InvalidInput);
+    assert!(d.close_context().is_err());
+    assert!(d.select_target(Target::Epilogue("root")).is_err());
+    d.select_main()?;
+    d.select_main()?;
+    d.select_target(Target::Prologue("root"))?;
+    d.text("again:")?;
+    d.select_main()?;
+    d.select_target(Target::Epilogue("root"))?;
+    d.text(":after")?;
+    d.select_main()?;
+    assert!(d.get_ref().is_empty());
+    d.text("tail")?;
+    assert_eq!(d.into_inner().unwrap(), b"before:again:bodytail:after\n");
+    Ok(())
+}
+
+#[test]
+fn invalid_selection_leaves_main_unchanged() -> Result<()> {
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    assert_eq!(
+        d.select_target(Target::Prologue("missing"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidInput
+    );
+    d.open_context(None, Some("root"))?;
+    assert_eq!(
+        d.select_target(Target::Prologue("missing"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound
+    );
+    d.text("body")?;
+    assert_eq!(d.into_inner().unwrap(), b"body\n");
+    Ok(())
+}
+
+#[test]
+fn target_contexts_resume_across_selections() -> Result<()> {
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    d.open_context(None, Some("root"))?;
+    d.select_target(Target::Prologue("root"))?;
+    d.open_context(Some("- "), Some("continued"))?;
+    d.text("first")?;
+    d.select_main()?;
+    d.text("body")?;
+    assert_eq!(
+        d.open_context(None, Some("continued")).unwrap_err().kind(),
+        ErrorKind::AlreadyExists
+    );
+    assert_eq!(
+        d.close_context().unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert!(d.get_ref().is_empty());
+    d.select_target(Target::Epilogue("root"))?;
+    d.open_context(Some("+ "), None)?;
+    d.text("after")?;
+    d.select_main()?;
+    d.select_target(Target::Prologue("root"))?;
+    d.text(" second")?;
+    d.close_context()?;
+    d.select_main()?;
+    d.select_target(Target::Epilogue("root"))?;
+    d.text(" continued")?;
+    d.close_context()?;
+    d.select_main()?;
+    assert_eq!(
+        d.into_inner().unwrap(),
+        b"- first second\nbody+ after continued\n\n"
+    );
+    Ok(())
+}
+
+#[test]
+fn with_target_preserves_open_contexts_on_success_and_error() -> Result<()> {
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    d.open_context(None, Some("root"))?;
+    d.with_target(Target::Prologue("root"), |d| {
+        d.open_context(None, None)?;
+        d.text("before")
+    })?;
+    let error = d
+        .with_target(Target::Epilogue("root"), |d| {
+            d.open_context(None, None)?;
+            Err::<(), _>(Error::other("body failed"))
+        })
+        .unwrap_err();
+    assert_eq!(error.to_string(), "body failed");
+    d.text("body")?;
+    d.with_target(Target::Prologue("root"), |d| d.close_context())?;
+    d.with_target(Target::Epilogue("root"), |d| {
+        d.text("after")?;
+        d.close_context()
+    })?;
+    assert_eq!(d.into_inner().unwrap(), b"before\nbodyafter\n\n");
+    Ok(())
+}
+
+#[test]
+fn selection_is_rejected_after_finalization() -> Result<()> {
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    d.dump_all()?;
+    assert!(d.select_main().is_err());
+    assert!(d.select_target(Target::Prologue("root")).is_err());
+    Ok(())
+}
+
+#[test]
 fn runtime_names_and_prefixes_outlive_their_sources() -> Result<()> {
     let mut dumper = Dumper::new(Vec::new(), DumperConfig::default());
     dumper.open_context(None, None)?;

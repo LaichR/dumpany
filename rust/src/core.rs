@@ -60,7 +60,13 @@ pub struct Dumper<T: Write> {
     epilogues: HashMap<String, Recorder>,
     current_line: String,
     left_margin: Vec<usize>,
-    in_section: bool,
+    selected_target: Option<SelectedTarget>,
+}
+
+struct SelectedTarget {
+    main: Recorder,
+    name: String,
+    prologue: bool,
 }
 
 /// A finalization error that retains the writer, discarding pending output.
@@ -138,7 +144,7 @@ impl<T: Write> Dumper<T> {
             indent: 0,
             current_line: String::new(),
             left_margin: Vec::new(),
-            in_section: false,
+            selected_target: None,
         }
     }
 
@@ -176,7 +182,7 @@ impl<T: Write> Dumper<T> {
             return Ok(());
         }
         self.ensure_active()?;
-        if self.in_section {
+        if self.selected_target.is_some() {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
                 "cannot finalize inside a target scope",
@@ -199,16 +205,12 @@ impl<T: Write> Dumper<T> {
         result
     }
 
-    /// Record a prologue or epilogue, then restore normal recording, including on error.
-    /// Selecting another target from inside this scope is forbidden.
-    /// Contexts opened by the closure must be closed within it. Panics are not handled.
-    pub fn with_target<R>(
-        &mut self,
-        target: Target<'_>,
-        body: impl FnOnce(&mut Self) -> Result<R>,
-    ) -> Result<R> {
+    /// Select where subsequent operations are recorded, without opening a context.
+    /// Requires an open context and a registered name. Selecting another target
+    /// before selecting main again is forbidden. Does not write or flush output.
+    pub fn select_target(&mut self, target: Target<'_>) -> Result<()> {
         self.ensure_active()?;
-        if self.in_section {
+        if self.selected_target.is_some() {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
                 "target selection is only allowed from the main body",
@@ -235,23 +237,50 @@ impl<T: Write> Dumper<T> {
         }
         .unwrap_or_default();
         let main = std::mem::replace(recorder, section);
-        self.in_section = true;
-        let result = body(self);
-        let recorder = self
+        self.selected_target = Some(SelectedTarget {
+            main,
+            name,
+            prologue: matches!(target, Target::Prologue(_)),
+        });
+        Ok(())
+    }
+
+    /// Save the selected target and restore main recording. Already on main
+    /// is a no-op. Does not close the enclosing context or flush output.
+    /// Open target contexts are retained and can be continued by selecting the
+    /// same target again. They must be closed before the root is rendered.
+    pub fn select_main(&mut self) -> Result<()> {
+        self.ensure_active()?;
+        let Some(selected) = self.selected_target.take() else {
+            return Ok(());
+        };
+        let section = self
             .recorder
-            .as_mut()
-            .expect("section cannot close its enclosing context");
-        let section = std::mem::replace(recorder, main);
-        self.in_section = false;
-        match target {
-            Target::Prologue(_) => {
-                self.prologues.insert(name, section);
-            }
-            Target::Epilogue(_) => {
-                self.epilogues.insert(name, section);
-            }
+            .replace(selected.main)
+            .expect("selected target always has a recorder");
+        if selected.prologue {
+            self.prologues.insert(selected.name, section);
+        } else {
+            self.epilogues.insert(selected.name, section);
         }
-        result
+        Ok(())
+    }
+
+    /// Record a prologue or epilogue, then select main again, including on error.
+    /// Open target contexts may be continued in later selections. The closure's
+    /// error takes precedence over a restoration error. Panics are not handled.
+    pub fn with_target<R>(
+        &mut self,
+        target: Target<'_>,
+        body: impl FnOnce(&mut Self) -> Result<R>,
+    ) -> Result<R> {
+        self.select_target(target)?;
+        let result = body(self);
+        let restored = self.select_main();
+        match result {
+            Ok(value) => restored.map(|()| value),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn text(&mut self, text: impl Display) -> Result<()> {
@@ -360,10 +389,28 @@ impl<T: Write> Dumper<T> {
 
     pub fn close_context(&mut self) -> Result<()> {
         self.ensure_active()?;
+        if self.selected_target.is_none()
+            // the root context is beeing closed
+            && self
+                .recorder
+                .as_ref()
+                .is_some_and(|recorder| recorder.context_depth() == 1)
+            // there are open prolgues or epilogues
+            && self
+                .prologues
+                .values()
+                .chain(self.epilogues.values())
+                .any(|recorder| recorder.context_depth() != 0)
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "cannot render root with unclosed target contexts",
+            ));
+        }
         if self
             .recorder
             .as_ref()
-            .is_some_and(|recorder| self.in_section && recorder.context_depth() == 0)
+            .is_some_and(|recorder| self.selected_target.is_some() && recorder.context_depth() == 0)
         {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -373,7 +420,7 @@ impl<T: Write> Dumper<T> {
         let dump_to_writer = match &mut self.recorder {
             Some(recorder) => {
                 recorder.close_context()?;
-                !self.in_section && recorder.context_depth() == 0
+                self.selected_target.is_none() && recorder.context_depth() == 0
             }
             None => false,
         };
