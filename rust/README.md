@@ -89,6 +89,28 @@ metadata immediately. The dumper owns retained names and prologue/epilogue map
 keys until the root context is flushed, so source strings need not remain alive
 after `open_context()` returns.
 
+## Recording destinations
+
+`select_target(Target::Prologue(name))` or
+`select_target(Target::Epilogue(name))` redirects recording to a named context's
+prologue or epilogue. `select_main()` saves that recording and switches back to
+the main body; it does nothing if main is already selected on an active dumper.
+Repeated selections append to the same target.
+
+Selection changes the recording destination, not context structure or alignment.
+It requires an open context and a registered name. Selecting another target
+while one is selected is forbidden, as are closing the enclosing context and
+finalizing the dumper before selecting main again.
+
+For scoped Rust usage, prefer `with_target(target, |d| ...)`, which selects main
+again even if the closure returns an error. Open target contexts are retained
+when switching destinations and can be continued by selecting the same target
+again. They must be closed before the root context is rendered. Attempting to
+close the root while target contexts remain open returns an error without
+rendering it, allowing the targets to be selected and completed. If both the
+closure and restoration fail, the closure's error takes precedence. Panics are
+not handled.
+
 ## Writer ownership and finalization
 
 `Dumper::new(writer, config)` takes its writer directly. Pass an owned writer or
