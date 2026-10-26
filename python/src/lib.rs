@@ -18,6 +18,12 @@ mod dumpany {
     use crate::operations::PyContext;
 
     #[pymodule_export]
+    use crate::operations::Prologue;
+
+    #[pymodule_export]
+    use crate::operations::Epilogue;
+
+    #[pymodule_export]
     #[allow(non_upper_case_globals)]
     const __version__: &str = env!("CARGO_PKG_VERSION");
 }

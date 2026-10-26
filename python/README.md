@@ -131,6 +131,35 @@ This is an operation object, not a Python `with` context manager. Iterables allo
 lazy Python-side content generation, but Rust still buffers each root context's
 encoded operations until it closes.
 
+## Prologues and epilogues
+
+`Prologue(name, content)` and `Epilogue(name, content)` record content before or
+after the body of a named context, regardless of where the operations occur in
+the traversal:
+
+```python
+from dumpany import Prologue, Epilogue
+
+dumper = Dumper(stream)
+dumper.dump(Context([
+    "body",
+    Epilogue("section", ":after"),
+    Prologue("section", "before:"),
+], name="section"))
+dumper.dump_all()  # Emits "before:body:after\n".
+```
+
+The named context must already be registered within an open root context. Closed
+child contexts remain targetable until the root is rendered. Repeated operations
+append to the same prologue or epilogue. Target content uses ordinary recursive
+dispatch, including lazy visitors, joins, newlines, and context operations.
+
+These operations change the recording destination, not alignment or context
+structure. Selecting another prologue or epilogue from within target content is
+not allowed. Main recording is restored even if content raises; the original
+exception propagates and recorded content is not rolled back. Target operations
+participate in cycle detection, nesting limits, and Python garbage collection.
+
 ## Build and test
 
 With Python 3.10+ and Rust installed, from the workspace root:
