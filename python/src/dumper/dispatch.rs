@@ -19,11 +19,13 @@ pub(super) fn dispatch(
     if let Ok(operation) = value.cast::<NewLine>() {
         return dump_newline(dumper, operation.borrow().indentation);
     }
-    if value.is_instance_of::<Join>() {
-        return with_active(value, active, |active| dump_join(dumper, value, active));
+    if let Ok(operation) = value.cast::<Join>() {
+        return with_active(value, active, |active| dump_join(dumper, operation, active));
     }
-    if value.is_instance_of::<PyContext>() {
-        return with_active(value, active, |active| dump_context(dumper, value, active));
+    if let Ok(operation) = value.cast::<PyContext>() {
+        return with_active(value, active, |active| {
+            dump_context(dumper, operation, active)
+        });
     }
     if let Ok(operation) = value.cast::<Prologue>() {
         let (name, content) = operation.borrow().inner.snapshot(value.py())?;
@@ -108,13 +110,13 @@ fn dump_iterable(
 
 fn dump_join(
     dumper: &Bound<'_, PyDumper>,
-    value: &Bound<'_, PyAny>,
+    value: &Bound<'_, Join>,
     active: &mut HashSet<usize>,
 ) -> PyResult<()> {
     let py = value.py();
     // Release the operation borrow before executing Python callbacks.
     let (delimiter, iterable) = {
-        let operation = value.cast::<Join>()?.borrow();
+        let operation = value.borrow();
         let (delimiter, iterable) = operation
             .contents
             .as_ref()
@@ -147,13 +149,13 @@ fn dump_text(dumper: &Bound<'_, PyDumper>, value: &Bound<'_, PyAny>) -> PyResult
 
 fn dump_context(
     dumper: &Bound<'_, PyDumper>,
-    value: &Bound<'_, PyAny>,
+    value: &Bound<'_, PyContext>,
     active: &mut HashSet<usize>,
 ) -> PyResult<()> {
     let py = value.py();
     // Release all borrows before dispatching content that can call back into Python.
     let content = {
-        let operation = value.cast::<PyContext>()?.borrow();
+        let operation = value.borrow();
         let content = operation
             .content
             .as_ref()
