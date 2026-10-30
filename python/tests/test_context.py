@@ -112,7 +112,7 @@ def test_callbacks_can_use_dumper():
     dumper = Dumper(stream)
 
     def visitor():
-        dumper.text("before:")
+        dumper.dump("before:")
         yield "body"
 
     dumper.dump(Context(visitor()))

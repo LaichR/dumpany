@@ -53,10 +53,6 @@ class Dumper:
         line_width is the preferred wrapping width; new_line is the line-ending
         sequence. Normal indentation uses four spaces per level.
         """
-    def text(self, text: builtins.str) -> None:
-        r"""
-        Append text to the dump.
-        """
     def dump(self, value: typing.Any) -> None:
         r"""
         Dump any Python object as text or as a sequence of dump operations.
