@@ -16,7 +16,7 @@ from dumpany import Dumper
 
 stream = io.StringIO()
 dumper = Dumper(stream, line_width=120, new_line="\n")
-dumper.text("hello")
+dumper.dump("hello")
 dumper.dump_all()
 assert stream.getvalue() == "hello\n"
 ```
@@ -25,9 +25,10 @@ assert stream.getvalue() == "hello\n"
 as `io.StringIO` and `sys.stdout`. Use `new_line="\r\n"` for Windows-style line
 endings. Indentation retains the Rust default of four spaces.
 
-`text()` accepts strings and may buffer output. `dump_all()` emits pending text
+`dump()` accepts strings and other objects and may buffer output.
+`dump_all()` emits pending text
 and flushes without closing the stream. It finalizes the dumper: subsequent calls
-to `text()` fail; successful repeated calls to `dump_all()` do nothing. Finalize
+to `dump()` that add text fail; successful repeated calls to `dump_all()` do nothing. Finalize
 explicitly rather than relying on object destruction.
 
 Python stream exceptions are preserved. A failed write may leave incomplete
@@ -89,37 +90,12 @@ including automatically wrapped lines, align with that content rather than
 repeating the prefix. This is useful for enumeration items, function parameters,
 and similar structural elements.
 
-Give each enumeration item its own context:
-
-```python
-import io
-from dumpany import Context, Dumper
-
-stream = io.StringIO()
-dumper = Dumper(stream, line_width=40)
-dumper.dump([
-    Context(["Build the packages", ..., "Include Rust and Python."], prefix="1. "),
-    Context(["Run the tests", ..., "Check both packages."], prefix="2. "),
-])
-dumper.dump_all()
-print(stream.getvalue(), end="")
-```
-
-Output:
-
-```text
-1. Build the packages
-   Include Rust and Python.
-2. Run the tests
-   Check both packages.
-```
-
 Closing each context ends its block and restores the enclosing alignment.
 Content can be any supported value, including a generator or iterable visitor;
 it is consumed only when the context is dumped.
 
-Names must be unique within the recorded
-root context and become available for reuse after that root is flushed. Names
+Names must be unique within the outermost context and become available for
+reuse after that context is flushed. Names
 and prefixes may be dynamically created Python strings.
 
 The context closes even when its content raises; the original content exception
@@ -128,29 +104,18 @@ rolled back. Context operations participate in cycle detection, depth limits,
 and Python garbage collection, just like `Join`.
 
 This is an operation object, not a Python `with` context manager. Iterables allow
-lazy Python-side content generation, but Rust still buffers each root context's
+lazy Python-side content generation, but Rust still buffers each outermost context's
 encoded operations until it closes.
 
 ## Prologues and epilogues
 
 `Prologue(name, content)` and `Epilogue(name, content)` record content before or
 after the body of a named context, regardless of where the operations occur in
-the traversal:
+the traversal. The example below uses this to place a count before the items
+being counted.
 
-```python
-from dumpany import Prologue, Epilogue
-
-dumper = Dumper(stream)
-dumper.dump(Context([
-    "body",
-    Epilogue("section", ":after"),
-    Prologue("section", "before:"),
-], name="section"))
-dumper.dump_all()  # Emits "before:body:after\n".
-```
-
-The named context must already be registered within an open root context. Closed
-child contexts remain targetable until the root is rendered. Repeated operations
+The named context must already be registered within an open outermost context.
+Closed child contexts remain targetable until the outermost context is rendered. Repeated operations
 append to the same prologue or epilogue. Target content uses ordinary recursive
 dispatch, including lazy visitors, joins, newlines, and context operations.
 
@@ -159,6 +124,82 @@ structure. Selecting another prologue or epilogue from within target content is
 not allowed. Main recording is restored even if content raises; the original
 exception propagates and recorded content is not rolled back. Target operations
 participate in cycle detection, nesting limits, and Python garbage collection.
+
+## Putting it all together
+
+This example turns a Python object into a YAML mapping with a class name, a pupil
+count, and a list of pupils. The pupils can come from a generator: the count is
+calculated while producing the list, then inserted above it using a prologue.
+
+```python
+import io
+import json
+from collections.abc import Iterable
+from dataclasses import dataclass
+
+from dumpany import Context, Dumper, NewLine, Prologue
+
+
+@dataclass
+class Pupil:
+    name: str
+    surname: str
+
+
+@dataclass
+class SchoolClass:
+    name: str
+    pupils: Iterable[Pupil]
+
+
+def class_yaml(school_class):
+    count = 0
+    yield NewLine(increment=1)
+    for pupil in school_class.pupils:
+        count += 1
+        yield Context([
+            "name: ", json.dumps(pupil.name), ...,
+            "surname: ", json.dumps(pupil.surname),
+        ], prefix="- ")
+    yield NewLine(decrement=1)
+    yield Prologue("school-class", [
+        "name: ", json.dumps(school_class.name), ...,
+        "pupil_count: ", count, ...,
+        "pupils:", " []" if count == 0 else "",
+    ])
+
+
+school_class = SchoolClass("Class 4B", (
+    pupil for pupil in [Pupil("Alice", "Smith"), Pupil("Ben", "Jones")]
+))
+stream = io.StringIO()
+dumper = Dumper(stream)
+dumper.dump(Context(class_yaml(school_class), name="school-class"))
+dumper.dump_all()
+print(stream.getvalue(), end="")
+```
+
+Output (apart from trailing blank lines):
+
+```yaml
+name: "Class 4B"
+pupil_count: 2
+pupils:
+    - name: "Alice"
+      surname: "Smith"
+    - name: "Ben"
+      surname: "Jones"
+```
+
+- `NewLine(increment=1)` indents the list by four spaces; the matching decrement
+  restores the previous indentation.
+- Each `Context(prefix="- ")` introduces a list item and aligns `surname` with
+  `name`, without repeating the dash.
+- `class_yaml()` does not know the pupil count in advance. It counts pupils as
+  it visits them, then uses `Prologue` to place the completed count above the
+  list. The surrounding named context stays open throughout that traversal.
+- `json.dumps()` quotes the names using YAML-compatible double-quoted strings.
+  An empty iterable produces `pupil_count: 0` and `pupils: []`.
 
 ## Build and test
 

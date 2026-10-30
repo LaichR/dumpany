@@ -117,11 +117,11 @@ def test_callbacks_can_use_dumper_without_borrow_conflicts():
 
     class Label:
         def __str__(self):
-            dumper.text("prefix:")
+            dumper.dump("prefix:")
             return "label"
 
     def items():
-        dumper.text("items:")
+        dumper.dump("items:")
         yield Label()
 
     dumper.dump(items())

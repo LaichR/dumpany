@@ -100,7 +100,7 @@ def test_callbacks_can_write_to_selected_target():
 
     class Label:
         def __str__(self):
-            dumper.text("before:")
+            dumper.dump("before:")
             return "label:"
 
     dumper.dump(Context(["body", Prologue("root", Label())], name="root"))

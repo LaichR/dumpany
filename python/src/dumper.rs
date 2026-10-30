@@ -38,11 +38,6 @@ impl PyDumper {
         }
     }
 
-    /// Append text to the dump.
-    fn text(&mut self, text: &str) -> PyResult<()> {
-        self.inner.text(text).map_err(PyErr::from)
-    }
-
     /// Dump any Python object as text or as a sequence of dump operations.
     ///
     /// NewLine, Join, Context, Prologue, and Epilogue control the output as
