@@ -1,8 +1,13 @@
 /// Python interface to the dumpany Rust library.
+use pyo3_stub_gen::define_stub_info_gatherer;
 mod dumper;
 mod operations;
 pub mod writer;
 
+define_stub_info_gatherer!(stub_info);
+pyo3_stub_gen::module_variable!("dumpany", "__version__", String);
+
+/// Structured, width-aware text output to Python text streams.
 #[pyo3::pymodule]
 mod dumpany {
     #[pymodule_export]

@@ -21,3 +21,4 @@ test = ["pytest>=8"]
 [tool.maturin]
 module-name = "dumpany"
 features = ["extension-module"]
+include = [{ path = "dumpany.pyi", format = "sdist" }]

@@ -1,6 +1,7 @@
 use pyo3::class::gc::{PyTraverseError, PyVisit};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 /// Shared content and Python reference management for target operations.
 pub(crate) struct TargetContent {
@@ -37,14 +38,26 @@ impl TargetContent {
     }
 }
 
-/// Record content before the body of a named context.
+#[gen_stub_pyclass]
+/// A dumper operation that adds content before the body of a named context.
+///
+/// The content appears before the context's main content, even if the prologue
+/// is dumped after that content. Repeated prologues append in dumping order.
+/// The named context must already exist, and the outermost context containing
+/// it must remain open.
 #[pyclass(module = "dumpany")]
 pub struct Prologue {
     pub(crate) inner: TargetContent,
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl Prologue {
+    /// Create a prologue for the context identified by name.
+    ///
+    /// Content is consumed only when the prologue is dumped. It accepts the same
+    /// values and operations as Dumper.dump(), except that it must not contain
+    /// another Prologue or Epilogue, even indirectly.
     #[new]
     #[pyo3(signature = (name, content))]
     fn new(name: String, content: Py<PyAny>) -> Self {
@@ -52,7 +65,10 @@ impl Prologue {
             inner: TargetContent::new(name, content),
         }
     }
+}
 
+#[pymethods]
+impl Prologue {
     /// Expose content references so Python can detect unreachable cycles.
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.inner.traverse(visit)
@@ -64,14 +80,26 @@ impl Prologue {
     }
 }
 
-/// Record content after the body of a named context.
+#[gen_stub_pyclass]
+/// A dumper operation that adds content after the body of a named context.
+///
+/// The content appears after the context's main content, even if the epilogue
+/// is dumped before that content. Repeated epilogues append in dumping order.
+/// The named context must already exist, and the outermost context containing
+/// it must remain open.
 #[pyclass(module = "dumpany")]
 pub struct Epilogue {
     pub(crate) inner: TargetContent,
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl Epilogue {
+    /// Create an epilogue for the context identified by name.
+    ///
+    /// Content is consumed only when the epilogue is dumped. It accepts the same
+    /// values and operations as Dumper.dump(), except that it must not contain
+    /// another Prologue or Epilogue, even indirectly.
     #[new]
     #[pyo3(signature = (name, content))]
     fn new(name: String, content: Py<PyAny>) -> Self {
@@ -79,7 +107,10 @@ impl Epilogue {
             inner: TargetContent::new(name, content),
         }
     }
+}
 
+#[pymethods]
+impl Epilogue {
     /// Expose content references so Python can detect unreachable cycles.
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.inner.traverse(visit)
