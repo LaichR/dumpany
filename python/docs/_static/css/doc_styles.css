@@ -1,0 +1,37 @@
+/* Furo-compatible styling for custom AutoAPI summaries. */
+.summarylabel {
+  display: inline-block;
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.75em;
+  color: var(--color-foreground-secondary);
+  background: var(--color-background-secondary);
+}
+
+/* AutoAPI summary tables: adapt to Furo's content width and typography. */
+table.summarytable { width: 100%; table-layout: auto; }
+table.summarytable.docutils > caption {
+  caption-side: top;
+  text-align: left;
+  font-weight: 600;
+  font-size: 1.3rem;
+  padding: 0.5rem 0;
+}
+table.summarytable td, table.summarytable th { overflow-wrap: anywhere; }
+
+/* Allow deeply nested API signatures and names to wrap. */
+dl.py, dl.py dl { max-width: 100%; }
+dl.py dt.sig { white-space: normal; overflow-wrap: anywhere; }
+.content h1, .content h2, .content h3 { overflow-wrap: anywhere; }
+
+/* Keep the general index readable at narrow viewport widths. */
+@media (max-width: 700px) {
+  table.genindextable, table.genindextable tbody,
+  table.genindextable tr, table.genindextable td {
+    display: block;
+    width: 100%;
+  }
+}
+
+/* Prevent long search results from overflowing the page. */
+ul.search, ul.search li, ul.search li a { overflow-wrap: anywhere; }
