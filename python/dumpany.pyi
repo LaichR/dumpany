@@ -33,9 +33,13 @@ class Context:
         r"""
         Create a new context.
         
-        prefix is emitted once and establishes continuation-line alignment.
-        name optionally registers a target for Prologue and Epilogue; names must
-        be unique within the outermost context until it is rendered.
+        :param content: Any value accepted by Dumper.dump(). Consumed only when
+            the context is dumped.
+        :param prefix: Optional text emitted once before the content. Subsequent
+            lines align after this prefix rather than repeating it.
+        :param name: Optional name used by Prologue and Epilogue to target this
+            context. Names must be unique within the outermost context until it
+            is rendered.
         """
 
 @typing.final
@@ -50,8 +54,12 @@ class Dumper:
         r"""
         Create a dumper for a stream supporting write(str) and flush().
         
-        line_width is the preferred wrapping width; new_line is the line-ending
-        sequence. Normal indentation uses four spaces per level.
+        :param stream: A Python text stream with write(str) and flush() methods.
+            The dumper never closes it.
+        :param line_width: Preferred line width for wrapping text, in columns.
+            Defaults to 120. Normal indentation uses four spaces per level.
+        :param new_line: Line-ending sequence, such as ``"\n"`` or ``"\r\n"``.
+            Defaults to ``"\n"``.
         """
     def dump(self, value: typing.Any) -> None:
         r"""
@@ -67,6 +75,9 @@ class Dumper:
         
         Cycles raise ValueError and excessive nesting raises RecursionError.
         Python exceptions propagate without rolling back preceding output.
+        
+        :param value: Text, a dump operation, an iterable of supported values,
+            or an object to convert with str().
         """
     def dump_all(self) -> None:
         r"""
@@ -93,6 +104,10 @@ class Epilogue:
         Content is consumed only when the epilogue is dumped. It accepts the same
         values and operations as Dumper.dump(), except that it must not contain
         another Prologue or Epilogue, even indirectly.
+        
+        :param name: Name of an existing context to append content to.
+        :param content: Text or dump operations to place after that context's
+            main content. Consumed only when this operation is dumped.
         """
 
 @typing.final
@@ -109,6 +124,10 @@ class Join:
         
         The iterable is consumed only when the join is dumped.
         Generators and other one-shot iterators are not cached or rewound.
+        
+        :param delimiter: Any value accepted by Dumper.dump(), emitted between
+            adjacent items but never before the first or after the last item.
+        :param iterable: An iterable whose items are dumped recursively.
         """
 
 @typing.final
@@ -125,6 +144,11 @@ class NewLine:
         
         Counts must be integers from 0 to 255. Supplying both arguments raises
         ValueError, even when either count is zero.
+        
+        :param increment: Number of indentation levels to add after the line
+            break. Defaults to None (no increment).
+        :param decrement: Number of indentation levels to remove after the line
+            break. Defaults to None (no decrement).
         """
 
 @typing.final
@@ -144,5 +168,9 @@ class Prologue:
         Content is consumed only when the prologue is dumped. It accepts the same
         values and operations as Dumper.dump(), except that it must not contain
         another Prologue or Epilogue, even indirectly.
+        
+        :param name: Name of an existing context to prepend content to.
+        :param content: Text or dump operations to place before that context's
+            main content. Consumed only when this operation is dumped.
         """
 
