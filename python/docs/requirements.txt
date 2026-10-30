@@ -1,0 +1,4 @@
+sphinx>=7
+furo
+sphinx-autoapi
+sphinx-tabs
