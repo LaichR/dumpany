@@ -27,9 +27,13 @@ pub struct PyContext {
 impl PyContext {
     /// Create a new context.
     ///
-    /// prefix is emitted once and establishes continuation-line alignment.
-    /// name optionally registers a target for Prologue and Epilogue; names must
-    /// be unique within the outermost context until it is rendered.
+    /// :param content: Any value accepted by Dumper.dump(). Consumed only when
+    ///     the context is dumped.
+    /// :param prefix: Optional text emitted once before the content. Subsequent
+    ///     lines align after this prefix rather than repeating it.
+    /// :param name: Optional name used by Prologue and Epilogue to target this
+    ///     context. Names must be unique within the outermost context until it
+    ///     is rendered.
     #[new]
     #[pyo3(signature = (content, *, prefix=None, name=None))]
     fn new(content: Py<PyAny>, prefix: Option<String>, name: Option<String>) -> Self {

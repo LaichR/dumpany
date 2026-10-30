@@ -20,6 +20,11 @@ impl NewLine {
     ///
     /// Counts must be integers from 0 to 255. Supplying both arguments raises
     /// ValueError, even when either count is zero.
+    ///
+    /// :param increment: Number of indentation levels to add after the line
+    ///     break. Defaults to None (no increment).
+    /// :param decrement: Number of indentation levels to remove after the line
+    ///     break. Defaults to None (no decrement).
     #[new]
     #[pyo3(signature = (*, increment=None, decrement=None))]
     fn new(increment: Option<u8>, decrement: Option<u8>) -> PyResult<Self> {

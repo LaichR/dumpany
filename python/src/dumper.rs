@@ -21,8 +21,12 @@ pub struct PyDumper {
 impl PyDumper {
     /// Create a dumper for a stream supporting write(str) and flush().
     ///
-    /// line_width is the preferred wrapping width; new_line is the line-ending
-    /// sequence. Normal indentation uses four spaces per level.
+    /// :param stream: A Python text stream with write(str) and flush() methods.
+    ///     The dumper never closes it.
+    /// :param line_width: Preferred line width for wrapping text, in columns.
+    ///     Defaults to 120. Normal indentation uses four spaces per level.
+    /// :param new_line: Line-ending sequence, such as ``"\n"`` or ``"\r\n"``.
+    ///     Defaults to ``"\n"``.
     #[new]
     #[pyo3(signature = (stream, *, line_width=120, new_line="\n"))]
     fn new(stream: Py<PyAny>, line_width: usize, new_line: &str) -> Self {
@@ -50,6 +54,9 @@ impl PyDumper {
     ///
     /// Cycles raise ValueError and excessive nesting raises RecursionError.
     /// Python exceptions propagate without rolling back preceding output.
+    ///
+    /// :param value: Text, a dump operation, an iterable of supported values,
+    ///     or an object to convert with str().
     fn dump(slf: &Bound<'_, Self>, value: &Bound<'_, PyAny>) -> PyResult<()> {
         dispatch::dispatch(slf, value, &mut HashSet::new())
     }

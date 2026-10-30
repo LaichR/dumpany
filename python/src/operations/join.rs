@@ -19,6 +19,10 @@ impl Join {
     ///
     /// The iterable is consumed only when the join is dumped.
     /// Generators and other one-shot iterators are not cached or rewound.
+    ///
+    /// :param delimiter: Any value accepted by Dumper.dump(), emitted between
+    ///     adjacent items but never before the first or after the last item.
+    /// :param iterable: An iterable whose items are dumped recursively.
     #[new]
     #[pyo3(signature = (delimiter, iterable))]
     fn new(delimiter: Py<PyAny>, iterable: Py<PyAny>) -> Self {

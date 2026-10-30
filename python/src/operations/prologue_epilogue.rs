@@ -58,6 +58,10 @@ impl Prologue {
     /// Content is consumed only when the prologue is dumped. It accepts the same
     /// values and operations as Dumper.dump(), except that it must not contain
     /// another Prologue or Epilogue, even indirectly.
+    ///
+    /// :param name: Name of an existing context to prepend content to.
+    /// :param content: Text or dump operations to place before that context's
+    ///     main content. Consumed only when this operation is dumped.
     #[new]
     #[pyo3(signature = (name, content))]
     fn new(name: String, content: Py<PyAny>) -> Self {
@@ -100,6 +104,10 @@ impl Epilogue {
     /// Content is consumed only when the epilogue is dumped. It accepts the same
     /// values and operations as Dumper.dump(), except that it must not contain
     /// another Prologue or Epilogue, even indirectly.
+    ///
+    /// :param name: Name of an existing context to append content to.
+    /// :param content: Text or dump operations to place after that context's
+    ///     main content. Consumed only when this operation is dumped.
     #[new]
     #[pyo3(signature = (name, content))]
     fn new(name: String, content: Py<PyAny>) -> Self {
