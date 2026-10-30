@@ -1,6 +1,6 @@
 use super::PyDumper;
 use crate::operations::{Epilogue, Join, NewLine, Prologue, PyContext};
-use dumpany::core::{Indentation, Target};
+use dumpany_rs::core::{Indentation, Target};
 use pyo3::exceptions::{PyRecursionError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyByteArray, PyBytes, PyMemoryView, PyString};

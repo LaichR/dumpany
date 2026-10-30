@@ -178,6 +178,20 @@ Maturin generates a minimal Python import shim in the wheel; no Python package
 source is maintained here. Files under `tests/` test the installed extension.
 Wheels target the CPython stable ABI for Python 3.10+ (not free-threaded Python).
 
+### Type stubs
+
+Public classes, constructors, and methods carry documentation and
+`pyo3-stub-gen` annotations in the Rust bindings. Regenerate `dumpany.pyi` after
+changing the Python interface:
+
+```sh
+cargo run --locked -p dumpany-python --bin generate_type_stubs
+```
+
+The Python shared library must be available on the library search path when
+running the generator (on Windows, add the Python installation directory to
+`PATH`). Internal garbage-collection hooks are intentionally omitted.
+
 The Rust-side `PythonWriter` adapter forwards text writes and flushes without
 closing the stream, retaining Python exceptions in I/O errors. Each Rust write
 must contain complete UTF-8.

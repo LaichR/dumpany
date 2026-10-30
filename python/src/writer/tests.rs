@@ -1,5 +1,5 @@
 use super::*;
-use dumpany::core::{Dumper, DumperConfig};
+use dumpany_rs::core::{Dumper, DumperConfig};
 use pyo3::exceptions::PyValueError;
 use std::ffi::CString;
 

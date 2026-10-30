@@ -6,12 +6,19 @@ publish = false
 
 [lib]
 name = "dumpany"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
-dumpany = { path = "../rust" }
-pyo3 = { version = "0.30.1", features = ["abi3-py310"] }
+dumpany-rs = { package="dumpany", path = "../rust" }
+pyo3 = { version = "0.29.0", features = ["abi3-py310", "multiple-pymethods"] }
+pyo3-stub-gen = "0.23.1"
+
+
 
 [features]
 extension-module = ["pyo3/extension-module"]
+
+[[bin]]
+name = "generate_type_stubs"
+path = "tools/generate_type_stubs.rs"
