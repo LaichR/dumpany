@@ -5,6 +5,7 @@ on:
     branches: [main]
     tags: ['**']
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -16,7 +17,7 @@ permissions:
 jobs:
   lint:
     name: Formatting and Clippy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
@@ -37,3 +38,68 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.3
       - name: Run tests
         run: cargo test --locked --all-features
+
+  python-stubs:
+    name: Python type stubs
+    runs-on: ubuntu-22.04
+    needs: python-test
+    env:
+      PYO3_PYTHON: python
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.10'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.3
+        with: 
+          shared-key: python-test
+      - name: Generate Python type stubs
+        run: cargo run --release --locked -p dumpany-python --bin generate_type_stubs
+      - name: Upload Python type stubs
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: python-type-stubs
+          path: python/dumpany.pyi
+          if-no-files-found: error
+
+  python-test:
+    name: Python tests
+    needs: [lint, test]
+    runs-on: ubuntu-22.04
+    env:
+      PYO3_PYTHON: python
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.10'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          shared-key: python-test
+      - name: Create test environment
+        run: |
+          python -m venv .venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+      - name: Install test tools
+        run: python -m pip install "./python[test]"
+      - name: Test Python stream adapter
+        run: cargo test --locked -p dumpany-python
+      - name: Run Python tests
+        run: python -m pytest python/tests
+
+  python:
+    name: Python packages
+    needs: [lint, test, python-stubs, python-test]
+    uses: ./.github/workflows/python.yml
+
+  docs:
+    name: Documentation
+    needs: [lint, test, python-stubs, python-test]
+    uses: ./.github/workflows/docs.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
