@@ -15,6 +15,9 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
 ]
 
+[project.urls]
+Documentation = "https://laichr.github.io/dumpany/python/"
+
 [project.optional-dependencies]
 test = ["pytest>=8"]
 
