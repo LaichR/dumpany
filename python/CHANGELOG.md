@@ -4,6 +4,9 @@
 
 ### Added
 
+- Optional indentation increments and decrements when closing a context,
+  without an additional line break.
+
 - Prologue and epilogue operations for adding content before or after named
   context bodies while traversing their content.
 

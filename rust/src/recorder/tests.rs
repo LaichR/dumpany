@@ -6,10 +6,10 @@ fn records_root_and_basic_operations() -> Result<()> {
     let mut recorder = Recorder::new(Some("- "), Some("root"))?;
     assert_eq!(recorder.context_depth(), 1);
     recorder.text("hello λ")?;
-    recorder.inc_indent()?;
+    recorder.inc_indent(1)?;
     recorder.text(42)?;
     recorder.new_line(Some(Indentation::Decrement(1)))?;
-    recorder.dec_indent()?;
+    recorder.dec_indent(1)?;
     recorder.new_line(None)?;
     recorder.close_context()?;
     assert_eq!(recorder.context_depth(), 0);
@@ -77,5 +77,26 @@ fn records_operations_without_an_enclosing_context() -> Result<()> {
     assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text("section"));
     assert_eq!(NewLine::from_bytes(&mut input)?, NewLine(None));
     assert!(input.is_empty());
+    Ok(())
+}
+
+#[test]
+fn records_indentation_counts_as_single_operations() -> Result<()> {
+    for count in [0, 1, 2, 255] {
+        let mut recorder = Recorder::default();
+        recorder.inc_indent(count)?;
+        recorder.dec_indent(count)?;
+        let mut input = recorder.encoded_content();
+        assert_eq!(input.len(), 6);
+        assert_eq!(
+            Indentation::from_bytes(&mut input)?,
+            Indentation::Increment(count)
+        );
+        assert_eq!(
+            Indentation::from_bytes(&mut input)?,
+            Indentation::Decrement(count)
+        );
+        assert!(input.is_empty());
+    }
     Ok(())
 }

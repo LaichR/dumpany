@@ -83,7 +83,7 @@ is traversed by `Join`, while string and bytes-like items remain atomic.
 
 ## Context operations
 
-`Context(content, *, prefix=None, name=None)` controls the indentation and
+`Context(content, *, prefix=None, name=None, increment=None, decrement=None)` controls the indentation and
 alignment of a text block independently of the normal indentation level.
 Its prefix establishes where the block's content begins; subsequent lines,
 including automatically wrapped lines, align with that content rather than
@@ -91,6 +91,10 @@ repeating the prefix. This is useful for enumeration items, function parameters,
 and similar structural elements.
 
 Closing each context ends its block and restores the enclosing alignment.
+Normal indentation is unchanged unless `increment` or `decrement` is supplied;
+that change applies after the final line, without an extra newline. Supply only
+one of these keywords, with a count from 0 to 255. Indentation changes inside
+the context are not automatically undone when it closes.
 Content can be any supported value, including a generator or iterable visitor;
 it is consumed only when the context is dumped.
 

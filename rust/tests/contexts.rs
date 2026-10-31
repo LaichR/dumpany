@@ -2,8 +2,33 @@ mod common;
 
 use common::memory_writer;
 use dumpany::context::Context;
-use dumpany::core::{Dumper, DumperConfig};
+use dumpany::core::{Dumper, DumperConfig, Indentation};
 use std::io::{Error, ErrorKind, Result};
+
+#[test]
+fn closing_context_adjusts_indentation_after_its_final_line() -> Result<()> {
+    for nested in [false, true] {
+        let mut dumper = Dumper::new(Vec::new(), DumperConfig::default());
+        if nested {
+            dumper.open_context(None, None)?;
+        }
+        dumper.open_context(None, None)?;
+        dumper.text("heading")?;
+        dumper.close_context_with_indentation(Some(Indentation::Increment(2)))?;
+        dumper.open_context(None, None)?;
+        dumper.text("body")?;
+        dumper.close_context_with_indentation(Some(Indentation::Decrement(255)))?;
+        dumper.text("tail")?;
+        if nested {
+            dumper.close_context()?;
+        }
+        assert_eq!(
+            dumper.into_inner().unwrap(),
+            b"heading\n        body\ntail\n"
+        );
+    }
+    Ok(())
+}
 
 #[test]
 fn scoped_context_accepts_runtime_metadata() -> Result<()> {

@@ -332,7 +332,7 @@ impl<T: Write> Dumper<T> {
     pub fn inc_indent(&mut self) -> Result<()> {
         self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
-            recorder.inc_indent()?;
+            recorder.inc_indent(1)?;
         } else {
             self.indent += 1;
         }
@@ -342,7 +342,7 @@ impl<T: Write> Dumper<T> {
     pub fn dec_indent(&mut self) -> Result<()> {
         self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
-            recorder.dec_indent()?;
+            recorder.dec_indent(1)?;
         } else {
             self.indent -= 1;
         }
@@ -430,6 +430,31 @@ impl<T: Write> Dumper<T> {
             let epilogues = std::mem::take(&mut self.epilogues);
             self.names.clear();
             self.dump_recorder(&prologues, &epilogues, &recorder)?;
+        }
+        Ok(())
+    }
+
+    /// Close an aligned block, then explicitly adjust normal indentation.
+    /// No additional line break is emitted. Decrements stop at zero.
+    pub fn close_context_with_indentation(
+        &mut self,
+        indentation: Option<Indentation>,
+    ) -> Result<()> {
+        self.close_context()?;
+        if let Some(indentation) = indentation {
+            if let Some(recorder) = &mut self.recorder {
+                match indentation {
+                    Increment(count) => recorder.inc_indent(count)?,
+                    Decrement(count) => recorder.dec_indent(count)?,
+                }
+            } else {
+                match indentation {
+                    Increment(count) => self.indent += usize::from(count),
+                    Decrement(count) => {
+                        self.indent = self.indent.saturating_sub(usize::from(count))
+                    }
+                }
+            }
         }
         Ok(())
     }
