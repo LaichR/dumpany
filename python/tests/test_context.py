@@ -4,7 +4,7 @@ import weakref
 
 import pytest
 
-from dumpany import Context, Dumper, Join
+from dumpany import Context, Dumper, Join, NewLine
 
 
 def test_context_prefix_and_wrapping(render):
@@ -125,3 +125,58 @@ def test_metadata_requires_strings():
         Context("hello", prefix=123)
     with pytest.raises(TypeError):
         Context("hello", name=123)
+
+
+def test_indentation_changes_after_closing_without_an_extra_newline(render):
+    assert render([
+        Context("heading", increment=2),
+        Context("body", decrement=1),
+        "tail",
+    ]) == "heading\n        body\n    tail\n"
+
+
+def test_nested_context_close_indentation_is_recorded(render):
+    assert render(Context([
+        Context("heading", increment=1),
+        Context("body", decrement=1),
+        "tail",
+    ])) == "heading\n    body\ntail\n"
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_close_decrement_stops_at_zero(render, nested):
+    content = [Context("body", decrement=255), "tail"]
+    assert render(Context(content) if nested else content) == "body\ntail\n"
+
+
+def test_indentation_is_not_implicitly_restored(render):
+    assert render([Context(["heading", NewLine(increment=1), "body"]), "tail"]) == (
+        "heading\nbody\n    tail\n"
+    )
+
+
+@pytest.mark.parametrize("count", [0, 1])
+def test_close_indentation_directions_are_mutually_exclusive(count):
+    with pytest.raises(ValueError, match="either increment or decrement"):
+        Context("body", increment=count, decrement=count)
+
+
+@pytest.mark.parametrize("keyword", ["increment", "decrement"])
+@pytest.mark.parametrize("count", [-1, 256])
+def test_close_indentation_counts_must_fit_u8(keyword, count):
+    with pytest.raises(OverflowError):
+        Context("body", **{keyword: count})
+
+
+def test_close_indentation_applies_during_content_error_cleanup():
+    def broken():
+        yield "before"
+        raise ValueError("content failed")
+
+    stream = io.StringIO()
+    dumper = Dumper(stream)
+    with pytest.raises(ValueError, match="content failed"):
+        dumper.dump(Context(broken(), increment=1))
+    dumper.dump("after")
+    dumper.dump_all()
+    assert stream.getvalue() == "before\n    after\n"

@@ -28,8 +28,11 @@ class Context:
     be added only while the outermost context remains open.
     
     The context's content is dumped recursively.
+    Closing the context ends its final line and restores the enclosing alignment.
+    Normal indentation is left unchanged unless increment or decrement is supplied;
+    the requested change takes effect after the context's final line.
     """
-    def __new__(cls, content: typing.Any, *, prefix: typing.Optional[builtins.str] = None, name: typing.Optional[builtins.str] = None) -> Context:
+    def __new__(cls, content: typing.Any, *, prefix: typing.Optional[builtins.str] = None, name: typing.Optional[builtins.str] = None, increment: typing.Optional[builtins.int] = None, decrement: typing.Optional[builtins.int] = None) -> Context:
         r"""
         Create a new context.
         
@@ -40,6 +43,14 @@ class Context:
         :param name: Optional name used by Prologue and Epilogue to target this
             context. Names must be unique within the outermost context until it
             is rendered.
+        :param increment: Number of normal indentation levels to add on closing.
+            Defaults to None (no increment).
+        :param decrement: Number of normal indentation levels to remove on closing,
+            stopping at zero. Defaults to None (no decrement).
+        
+        Counts must be integers from 0 to 255. Supplying both increment and
+        decrement raises ValueError, even when either count is zero. Indentation
+        changes made inside the context are not automatically undone on closing.
         """
 
 @typing.final

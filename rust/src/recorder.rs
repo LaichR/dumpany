@@ -29,12 +29,14 @@ impl Recorder {
         NewLine(change_indentation).to_bytes(&mut self.encoded_content)
     }
 
-    pub fn inc_indent(&mut self) -> Result<()> {
-        Indentation::Increment(1).to_bytes(&mut self.encoded_content)
+    /// Record an increase of count indentation levels as one operation.
+    pub fn inc_indent(&mut self, count: u8) -> Result<()> {
+        Indentation::Increment(count).to_bytes(&mut self.encoded_content)
     }
 
-    pub fn dec_indent(&mut self) -> Result<()> {
-        Indentation::Decrement(1).to_bytes(&mut self.encoded_content)
+    /// Record a decrease of count indentation levels as one operation.
+    pub fn dec_indent(&mut self, count: u8) -> Result<()> {
+        Indentation::Decrement(count).to_bytes(&mut self.encoded_content)
     }
 
     pub fn open_context(&mut self, prefix: Option<&str>, name: Option<&str>) -> Result<()> {

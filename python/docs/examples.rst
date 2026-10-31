@@ -7,7 +7,7 @@ Separating generated values
 ``Join`` accepts more than strings: its items and delimiter can themselves be
 dump operations. Here it generates function parameters inside a context whose
 ``"("`` prefix aligns wrapped lines after the opening parenthesis.
-``NewLine`` then increases the indentation for the function body:
+Closing that context increases the indentation for the function body:
 
 .. code-block:: python
 
@@ -31,8 +31,7 @@ dump operations. Here it generates function parameters inside a context whose
        Context([
            Join(", ", ([name, ": ", annotation] for name, annotation in parameters)),
            "):",
-       ], prefix="("),
-       NewLine(increment=1),
+       ], prefix="(", increment=1),
        "...",
        NewLine(decrement=1),
    ])
@@ -45,12 +44,12 @@ Output:
 
    def register(name: str, age: int, email_address: str, street: str, city: str,
                 zip_code: str, country: str):
-
        ...
 
-The parameter context handles continuation alignment, while the body uses the
-normal four-space indentation. Closing the context and emitting the following
-newline leaves a blank line before the body.
+The parameter context handles continuation alignment. Closing it ends the
+signature's final line and then increases normal indentation by one level, so
+the body starts four spaces in without an extra blank line. The final newline
+decreases indentation again.
 
 Putting it all together
 -----------------------

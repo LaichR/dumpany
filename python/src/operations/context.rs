@@ -1,3 +1,4 @@
+use dumpany_rs::core::Indentation;
 use pyo3::class::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
@@ -15,11 +16,15 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 /// be added only while the outermost context remains open.
 ///
 /// The context's content is dumped recursively.
+/// Closing the context ends its final line and restores the enclosing alignment.
+/// Normal indentation is left unchanged unless increment or decrement is supplied;
+/// the requested change takes effect after the context's final line.
 #[pyclass(name = "Context", module = "dumpany")]
 pub struct PyContext {
     pub(crate) prefix: Option<String>,
     pub(crate) name: Option<String>,
     pub(crate) content: Option<Py<PyAny>>,
+    pub(crate) indentation: Option<Indentation>,
 }
 
 #[gen_stub_pymethods]
@@ -34,14 +39,29 @@ impl PyContext {
     /// :param name: Optional name used by Prologue and Epilogue to target this
     ///     context. Names must be unique within the outermost context until it
     ///     is rendered.
+    /// :param increment: Number of normal indentation levels to add on closing.
+    ///     Defaults to None (no increment).
+    /// :param decrement: Number of normal indentation levels to remove on closing,
+    ///     stopping at zero. Defaults to None (no decrement).
+    ///
+    /// Counts must be integers from 0 to 255. Supplying both increment and
+    /// decrement raises ValueError, even when either count is zero. Indentation
+    /// changes made inside the context are not automatically undone on closing.
     #[new]
-    #[pyo3(signature = (content, *, prefix=None, name=None))]
-    fn new(content: Py<PyAny>, prefix: Option<String>, name: Option<String>) -> Self {
-        Self {
+    #[pyo3(signature = (content, *, prefix=None, name=None, increment=None, decrement=None))]
+    fn new(
+        content: Py<PyAny>,
+        prefix: Option<String>,
+        name: Option<String>,
+        increment: Option<u8>,
+        decrement: Option<u8>,
+    ) -> PyResult<Self> {
+        Ok(Self {
             prefix,
             name,
             content: Some(content),
-        }
+            indentation: super::indentation(increment, decrement)?,
+        })
     }
 }
 
