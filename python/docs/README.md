@@ -17,6 +17,20 @@ Regenerate the stub after changing the Python interface.
 
 Open `python/docs/_build/html/index.html` to view the result.
 
+## Publishing
+
+The Documentation workflow builds pull requests targeting `main`, pushes to
+`main`, and tags. It publishes only on a tag push when the repository is public.
+Private-repository tags and branch pushes never publish documentation.
+
+Before the first public release, select **GitHub Actions** as the source under
+**Settings → Pages → Build and deployment** and allow tag deployments in the
+`github-pages` environment.
+
+Python documentation is published under `python/`, alongside a root landing
+page. Future Rust documentation can share the same Pages artifact. Each
+deployment replaces the complete site; tags do not create versioned directories.
+
 ## Customization
 
 - `conf.py`: AutoAPI settings, Furo options, and template filters.
