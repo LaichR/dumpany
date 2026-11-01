@@ -1,11 +1,7 @@
 name: Documentation
 
 on:
-  push:
-    branches: [main]
-    tags: ['**']
-  pull_request:
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -17,21 +13,18 @@ jobs:
     permissions:
       contents: read
       pages: read
-    concurrency:
-      group: docs-build-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.13'
-      - uses: dtolnay/rust-toolchain@stable
       - name: Install documentation dependencies
         run: python -m pip install -r python/docs/requirements.txt
-      - name: Generate Python type stubs
-        run: cargo run --locked -p dumpany-python --bin generate_type_stubs
-        env:
-          PYO3_PYTHON: python
+      - name: Download Python type stubs
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: python-type-stubs
+          path: python
       - name: Build Python documentation
         run: |
           version=$(python -c 'import tomllib; print(tomllib.load(open("python/Cargo.toml", "rb"))["package"]["version"])')
