@@ -32,17 +32,17 @@ jobs:
       - name: Add documentation landing page
         run: cp .github/pages/index.html _site/index.html
       - name: Configure GitHub Pages
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.event.repository.private == false
+        if: github.ref == 'refs/heads/main' && github.event.repository.private == false
         uses: actions/configure-pages@v6.0.0
       - name: Upload GitHub Pages artifact
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.event.repository.private == false
+        if: github.ref == 'refs/heads/main' && github.event.repository.private == false
         uses: actions/upload-pages-artifact@v5.0.0
         with:
           path: _site
 
   deploy:
     name: Publish documentation
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.event.repository.private == false
+    if: github.ref == 'refs/heads/main' && github.event.repository.private == false
     needs: build
     runs-on: ubuntu-latest
     permissions:
