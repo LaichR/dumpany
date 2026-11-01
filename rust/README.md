@@ -1,155 +1,37 @@
 # dumpany — Rust library
 
-A streaming text dumper with configurable line width, indentation, and line
-endings. Structured contexts support prefixes, prologues, and epilogues;
-the `Dump` trait, iterators, joins, and tuples support composition.
+A text-generation library for structured output, with control over line width,
+indentation, and alignment.
 
-No release has been tagged yet. See [CHANGELOG.md](CHANGELOG.md) for the initial
-feature set and the [workspace README](../README.md) for development information.
+## Library structure
 
-## Example: generate a Markdown report
+- `core`: the dumper, configuration, and traits for composing output.
+- `context`: aligned text blocks with optional prefixes and names.
+- `dump_tuple`: composition of heterogeneous dump operations using tuples.
+- `operations`: operation records and their encoding and decoding.
+- `recorder`: buffering of operations for later output.
 
-Contexts apply a list prefix and indent wrapped continuation lines for you.
-`join()` inserts table-column separators without special-casing the last column.
+Implementation and unit tests are in `src/`; public API integration tests are in
+`tests/`. Formatting fixtures are in `test-data/`.
 
-```rust
-use dumpany::context::Context;
-use dumpany::core::{Dumper, DumperConfig, Text};
+## Development
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut d = Dumper::new(
-        Vec::new(),
-        DumperConfig {
-            line_width: 48,
-            ..DumperConfig::default()
-        },
-    );
-    d.text("# Release checklist\n\n")?;
-
-    for task in [
-        "Run the Rust and Python tests before publishing the release.",
-        "Build the wheels and review the package documentation.",
-    ] {
-        Context::new(Some("- "), None).with(&mut d, |d| d.text(task))?;
-    }
-
-    d.text("\n## Packages\n\n")?;
-    for row in [
-        ["Package", "Status"],
-        ["---", "---"],
-        ["Rust crate", "Ready"],
-        ["Python extension", "Preview"],
-    ] {
-        Context::new(Some("| "), None).with(&mut d, |d| {
-            d.join(row.map(Text), Text(" | "))?;
-            d.text(" |")
-        })?;
-    }
-
-    print!("{}", String::from_utf8(d.into_inner()?)?);
-    Ok(())
-}
-```
-
-Output:
-
-```text
-# Release checklist
-
-- Run the Rust and Python tests before
-  publishing the release.
-- Build the wheels and review the package
-  documentation.
-
-## Packages
-
-| Package | Status |
-| --- | --- |
-| Rust crate | Ready |
-| Python extension | Preview |
-```
-
-Run the [complete example](examples/markdown.rs) from the workspace root:
+Run these commands from the repository root:
 
 ```sh
-cargo run -p dumpany --example markdown
-```
-
-Table cells are kept short here: `join()` inserts separators, but does not
-calculate column widths or escape Markdown content.
-
-`DumperConfig` defaults to a line width of 120, four-space indentation, and
-`"\n"` line endings.
-
-## Context metadata
-
-Context names and prefixes may be runtime strings. `open_context()` and
-`Context::new()` accept borrowed `&str` values; opening a context encodes its
-metadata immediately. The dumper owns retained names and prologue/epilogue map
-keys until the root context is flushed, so source strings need not remain alive
-after `open_context()` returns.
-
-## Recording destinations
-
-`select_target(Target::Prologue(name))` or
-`select_target(Target::Epilogue(name))` redirects recording to a named context's
-prologue or epilogue. `select_main()` saves that recording and switches back to
-the main body; it does nothing if main is already selected on an active dumper.
-Repeated selections append to the same target.
-
-Selection changes the recording destination, not context structure or alignment.
-It requires an open context and a registered name. Selecting another target
-while one is selected is forbidden, as are closing the enclosing context and
-finalizing the dumper before selecting main again.
-
-For scoped Rust usage, prefer `with_target(target, |d| ...)`, which selects main
-again even if the closure returns an error. Open target contexts are retained
-when switching destinations and can be continued by selecting the same target
-again. They must be closed before the root context is rendered. Attempting to
-close the root while target contexts remain open returns an error without
-rendering it, allowing the targets to be selected and completed. If both the
-closure and restoration fail, the closure's error takes precedence. Panics are
-not handled.
-
-## Writer ownership and finalization
-
-`Dumper::new(writer, config)` takes its writer directly. Pass an owned writer or
-`&mut writer` to borrow one. `get_ref()` borrows the writer without flushing
-buffered text. The dumper is `Send` when its writer is `Send`.
-
-`dump_all()` closes pending contexts, emits pending text, and flushes the writer.
-It finalizes the dumper: subsequent content operations fail, while successful
-repeated finalization does nothing. Dropping a dumper does not finalize it.
-
-`into_inner()` consumes the dumper, finalizes pending output, and returns the
-underlying writer. Already-finalized dumps are not flushed again.
-
-If finalization fails, remaining buffered output is discarded:
-
-- `IntoInnerError::error()` borrows the original I/O error.
-- The error's `into_inner()` returns the writer as-is.
-- The error's `into_parts()` returns both the original error and writer.
-
-Failed writes are not retried or rolled back. Output may be incomplete, including
-a partial line or UTF-8 sequence; returning the writer does not repair its content.
-
-## Tests
-
-From the workspace root:
-
-```sh
+cargo fmt --all -- --check
+cargo clippy --locked -p dumpany --all-targets -- -D warnings
 cargo test --locked -p dumpany
-cargo test --locked -p dumpany --test finalization
 ```
 
-- `tests/formatting.rs`: text, wrapping, indentation, and output fixtures.
-- `tests/contexts.rs`: context lifecycle and scoped cleanup.
-- `tests/targets.rs`: prologues, epilogues, and target routing.
-- `tests/composition.rs`: iterators, joins, and tuples.
-- `tests/finalization.rs`: finalization, writer ownership, and failures.
-- `tests/common/mod.rs`: test writers and fixture helpers.
+To apply formatting, run `cargo fmt --all` without `-- --check`.
 
-Add public API tests to the appropriate integration suite. Tests needing private
-implementation access belong in `src/<module>/tests.rs`, declared by the parent
-module with `#[cfg(test)] mod tests;`. Expected output lives in `test-data/check/`;
-fixture tests write actual output to `test-data/result/`.
+## Documentation
+
+Build and open the Rust API documentation locally:
+
+```sh
+cargo doc --locked -p dumpany --no-deps --open
+```
+
+The generated entry page is `target/doc/dumpany/index.html`.
