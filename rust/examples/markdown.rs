@@ -8,7 +8,7 @@ fn report() -> Result<String, Box<dyn std::error::Error>> {
             line_width: 48,
             ..DumperConfig::default()
         },
-    );
+    )?;
     d.text("# Release checklist\n\n")?;
 
     for task in [

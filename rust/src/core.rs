@@ -132,8 +132,19 @@ impl<T: Display> Dump for Text<T> {
 }
 
 impl<T: Write> Dumper<T> {
-    pub fn new(writer: T, config: DumperConfig) -> Self {
-        Self {
+    /// Create a dumper with the supplied writer and configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if `config.new_line` is empty.
+    pub fn new(writer: T, config: DumperConfig) -> Result<Self> {
+        if config.new_line.is_empty() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "line ending must not be empty",
+            ));
+        }
+        Ok(Self {
             state: DumperState::Active,
             writer,
             config,
@@ -145,7 +156,7 @@ impl<T: Write> Dumper<T> {
             current_line: String::new(),
             left_margin: Vec::new(),
             selected_target: None,
-        }
+        })
     }
 
     /// Borrow the writer without flushing buffered output.
@@ -283,6 +294,7 @@ impl<T: Write> Dumper<T> {
         }
     }
 
+    /// Append text, treating occurrences of the configured line ending as line breaks.
     pub fn text(&mut self, text: impl Display) -> Result<()> {
         self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
@@ -544,7 +556,8 @@ impl<T: Write> Dumper<T> {
     }
 
     fn dump_text(&mut self, text: &str) -> Result<()> {
-        let mut iter = text.split("\n");
+        let new_line = self.config.new_line.clone();
+        let mut iter = text.split(new_line.as_str());
 
         if let Some(mut current) = iter.next() {
             for next in iter {

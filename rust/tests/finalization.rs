@@ -8,7 +8,7 @@ use std::io::{self, Write};
 fn finalizes_pending_lines_once_and_leaves_writer_usable() -> io::Result<()> {
     for (text, expected) in [("", ""), ("hello", "hello\n"), ("hello\n", "hello\n")] {
         let writer = Writer::default();
-        let mut d = Dumper::new(writer, DumperConfig::default());
+        let mut d = Dumper::new(writer, DumperConfig::default()).unwrap();
         if !text.is_empty() {
             d.text(text)?;
         }
@@ -35,7 +35,7 @@ fn finalizes_pending_lines_once_and_leaves_writer_usable() -> io::Result<()> {
 #[test]
 fn finalizes_nested_contexts_and_sections() -> io::Result<()> {
     let writer = Writer::default();
-    let mut d = Dumper::new(writer, DumperConfig::default());
+    let mut d = Dumper::new(writer, DumperConfig::default()).unwrap();
     d.open_context(None, Some("root"))?;
     d.open_context(None, Some("child"))?;
     d.text("body")?;
@@ -50,7 +50,7 @@ fn finalizes_nested_contexts_and_sections() -> io::Result<()> {
 #[test]
 fn target_scope_rejection_does_not_finalize() -> io::Result<()> {
     let writer = Writer::default();
-    let mut d = Dumper::new(writer, DumperConfig::default());
+    let mut d = Dumper::new(writer, DumperConfig::default()).unwrap();
     d.open_context(None, Some("root"))?;
     d.with_target(Target::Prologue("root"), |d| {
         assert_eq!(
@@ -73,7 +73,7 @@ fn failures_are_terminal_and_preserve_original_error() -> io::Result<()> {
             fail_flush: !fail_write,
             ..Writer::default()
         };
-        let mut d = Dumper::new(writer, DumperConfig::default());
+        let mut d = Dumper::new(writer, DumperConfig::default()).unwrap();
         d.text("hello")?;
         let error = d.dump_all().unwrap_err();
         assert_eq!(
@@ -100,7 +100,7 @@ fn ordinary_write_failure_also_prevents_finalization_retry() -> io::Result<()> {
         fail_write: true,
         ..Writer::default()
     };
-    let mut d = Dumper::new(writer, DumperConfig::default());
+    let mut d = Dumper::new(writer, DumperConfig::default()).unwrap();
     assert!(d.text("hello\n").is_err());
     assert!(d.dump_all().is_err());
     assert_eq!(d.get_ref().bytes, b"h");
@@ -109,7 +109,7 @@ fn ordinary_write_failure_also_prevents_finalization_retry() -> io::Result<()> {
 
 #[test]
 fn into_inner_finalizes_pending_output_and_nested_contexts() -> io::Result<()> {
-    let mut d = Dumper::new(Writer::default(), DumperConfig::default());
+    let mut d = Dumper::new(Writer::default(), DumperConfig::default()).unwrap();
     d.open_context(None, Some("root"))?;
     d.open_context(None, Some("child"))?;
     d.text("body")?;
@@ -124,7 +124,7 @@ fn into_inner_finalizes_pending_output_and_nested_contexts() -> io::Result<()> {
 #[test]
 fn into_inner_flushes_empty_and_pending_dumps() -> io::Result<()> {
     for (text, expected) in [("", ""), ("hello", "hello\n")] {
-        let mut d = Dumper::new(Writer::default(), DumperConfig::default());
+        let mut d = Dumper::new(Writer::default(), DumperConfig::default()).unwrap();
         d.text(text)?;
         let writer = d.into_inner().unwrap();
         assert_eq!(writer.bytes, expected.as_bytes());
@@ -143,7 +143,8 @@ fn into_inner_preserves_writer_and_error_on_failure() -> io::Result<()> {
                 ..Writer::default()
             },
             DumperConfig::default(),
-        );
+        )
+        .unwrap();
         d.text("hello")?;
         let error = d.into_inner().err().unwrap();
         assert_eq!(
@@ -190,7 +191,7 @@ fn into_inner_preserves_writer_and_error_on_failure() -> io::Result<()> {
 #[test]
 fn borrowed_writer_remains_available_after_finalization() -> io::Result<()> {
     let mut writer = Vec::new();
-    let mut d = Dumper::new(&mut writer, DumperConfig::default());
+    let mut d = Dumper::new(&mut writer, DumperConfig::default()).unwrap();
     d.text("hello")?;
     d.into_inner().unwrap().write_all(b"after")?;
     assert_eq!(writer, b"hello\nafter");
@@ -205,7 +206,8 @@ fn finalization_error_into_inner_recovers_writer_without_retry() -> io::Result<(
             ..Writer::default()
         },
         DumperConfig::default(),
-    );
+    )
+    .unwrap();
     d.text("hello")?;
     let writer = d.into_inner().err().unwrap().into_inner();
     assert_eq!(writer.bytes, b"hello\n");
@@ -217,7 +219,7 @@ fn finalization_error_into_inner_recovers_writer_without_retry() -> io::Result<(
 fn owned_dumper_can_move_between_threads() {
     fn assert_send<T: Send>() {}
     assert_send::<Dumper<Vec<u8>>>();
-    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default()).unwrap();
     d.text("hello").unwrap();
     let writer = std::thread::spawn(move || d.into_inner().unwrap())
         .join()

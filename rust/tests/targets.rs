@@ -7,7 +7,7 @@ use std::io::{Error, ErrorKind, Result};
 
 #[test]
 fn explicit_selection_appends_and_restores_main() -> Result<()> {
-    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default()).unwrap();
     d.select_main()?;
     d.open_context(None, Some("root"))?;
     d.text("body")?;
@@ -34,7 +34,7 @@ fn explicit_selection_appends_and_restores_main() -> Result<()> {
 
 #[test]
 fn invalid_selection_leaves_main_unchanged() -> Result<()> {
-    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default()).unwrap();
     assert_eq!(
         d.select_target(Target::Prologue("missing"))
             .unwrap_err()
@@ -55,7 +55,7 @@ fn invalid_selection_leaves_main_unchanged() -> Result<()> {
 
 #[test]
 fn target_contexts_resume_across_selections() -> Result<()> {
-    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default()).unwrap();
     d.open_context(None, Some("root"))?;
     d.select_target(Target::Prologue("root"))?;
     d.open_context(Some("- "), Some("continued"))?;
@@ -92,7 +92,7 @@ fn target_contexts_resume_across_selections() -> Result<()> {
 
 #[test]
 fn with_target_preserves_open_contexts_on_success_and_error() -> Result<()> {
-    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default()).unwrap();
     d.open_context(None, Some("root"))?;
     d.with_target(Target::Prologue("root"), |d| {
         d.open_context(None, None)?;
@@ -117,7 +117,7 @@ fn with_target_preserves_open_contexts_on_success_and_error() -> Result<()> {
 
 #[test]
 fn selection_is_rejected_after_finalization() -> Result<()> {
-    let mut d = Dumper::new(Vec::new(), DumperConfig::default());
+    let mut d = Dumper::new(Vec::new(), DumperConfig::default()).unwrap();
     d.dump_all()?;
     assert!(d.select_main().is_err());
     assert!(d.select_target(Target::Prologue("root")).is_err());
@@ -126,7 +126,7 @@ fn selection_is_rejected_after_finalization() -> Result<()> {
 
 #[test]
 fn runtime_names_and_prefixes_outlive_their_sources() -> Result<()> {
-    let mut dumper = Dumper::new(Vec::new(), DumperConfig::default());
+    let mut dumper = Dumper::new(Vec::new(), DumperConfig::default()).unwrap();
     dumper.open_context(None, None)?;
     {
         let name = String::from("runtime");
@@ -161,7 +161,7 @@ fn runtime_names_and_prefixes_outlive_their_sources() -> Result<()> {
 #[test]
 fn closed_children_remain_targetable_until_flush() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     Context::new(None, Some("root")).with(&mut dumper, |d| {
         Context::new(None, Some("child")).with(d, |d| d.text("body"))?;
         assert!(d.get_ref().is_empty());
@@ -189,7 +189,8 @@ fn flush_failure_clears_names_and_section_recorders() -> Result<()> {
             line_width: 1,
             ..DumperConfig::default()
         },
-    );
+    )
+    .unwrap();
     let error = Context::new(Some("too long"), Some("root"))
         .with(&mut dumper, |d| {
             d.with_target(Target::Prologue("root"), |d| d.text("before"))?;
@@ -211,7 +212,7 @@ fn flush_failure_clears_names_and_section_recorders() -> Result<()> {
 fn section_selection_is_not_reentrant_and_sections_are_independent() -> Result<()> {
     for outer in [Target::Prologue("root"), Target::Epilogue("root")] {
         let writer = memory_writer();
-        let mut dumper = Dumper::new(writer, DumperConfig::default());
+        let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
         Context::new(None, Some("root")).with(&mut dumper, |d| {
             d.with_target(outer, |d| {
                 for inner in [Target::Prologue("root"), Target::Epilogue("root")] {
@@ -241,7 +242,7 @@ fn section_selection_is_not_reentrant_and_sections_are_independent() -> Result<(
 #[test]
 fn section_contexts_cannot_select_another_target() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     Context::new(None, Some("root")).with(&mut dumper, |d| {
         d.with_target(Target::Prologue("root"), |d| {
             d.text("a")?;
@@ -265,7 +266,7 @@ fn section_contexts_cannot_select_another_target() -> Result<()> {
 fn sections_buffer_newlines_and_allow_nested_contexts() -> Result<()> {
     use dumpany::core::Target;
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     Context::new(None, Some("root")).with(&mut dumper, |d| {
         d.text("body")?;
         d.with_target(Target::Prologue("root"), |d| {
@@ -285,7 +286,7 @@ fn sections_buffer_newlines_and_allow_nested_contexts() -> Result<()> {
 fn scoped_targets_restore_output_and_render_sections_in_order() -> Result<()> {
     use dumpany::core::Target;
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     assert!(
         dumper
             .with_target(Target::Prologue("root"), |_| Ok(()))

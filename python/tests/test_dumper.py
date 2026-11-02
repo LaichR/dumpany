@@ -32,6 +32,20 @@ def test_negative_line_width_is_rejected():
         Dumper(io.StringIO(), line_width=-1)
 
 
+def test_empty_line_ending_is_rejected():
+    with pytest.raises(ValueError, match="line ending must not be empty"):
+        Dumper(io.StringIO(), new_line="")
+
+
+@pytest.mark.parametrize("delimiter", ["\r\n", "<br>"])
+def test_text_uses_configured_line_ending(delimiter):
+    stream = io.StringIO()
+    dumper = Dumper(stream, new_line=delimiter)
+    dumper.dump(f"first{delimiter}last\nline")
+    dumper.dump_all()
+    assert stream.getvalue() == f"first{delimiter}last\nline{delimiter}"
+
+
 def test_stream_errors_are_reported():
     class BrokenStream:
         def write(self, text):
