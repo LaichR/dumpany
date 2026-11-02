@@ -8,7 +8,7 @@ use std::io::{Error, ErrorKind, Result};
 #[test]
 fn closing_context_adjusts_indentation_after_its_final_line() -> Result<()> {
     for nested in [false, true] {
-        let mut dumper = Dumper::new(Vec::new(), DumperConfig::default());
+        let mut dumper = Dumper::new(Vec::new(), DumperConfig::default())?;
         if nested {
             dumper.open_context(None, None)?;
         }
@@ -34,7 +34,7 @@ fn closing_context_adjusts_indentation_after_its_final_line() -> Result<()> {
 fn scoped_context_accepts_runtime_metadata() -> Result<()> {
     let prefix = String::from("- ");
     let name = String::from("runtime");
-    let mut dumper = Dumper::new(Vec::new(), DumperConfig::default());
+    let mut dumper = Dumper::new(Vec::new(), DumperConfig::default())?;
     Context::new(Some(&prefix), Some(&name)).with(&mut dumper, |d| d.text("hello"))?;
     assert_eq!(dumper.into_inner().unwrap(), b"- hello\n");
     Ok(())
@@ -70,7 +70,7 @@ fn recorder_encodes_runtime_metadata_before_sources_are_dropped() -> Result<()> 
 #[test]
 fn unnamed_contexts_remain_usable_without_sections() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     Context::new(None, None).with(&mut dumper, |d| {
         for text in ["first", "second"] {
             Context::new(None, None).with(d, |d| d.text(text))?;
@@ -84,7 +84,7 @@ fn unnamed_contexts_remain_usable_without_sections() -> Result<()> {
 #[test]
 fn scoped_contexts_nest_and_return_values() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     let value = Context::new(Some("- "), None).with(&mut dumper, |d| {
         Context::new(Some("* "), None).with(d, |d| d.text("hello"))?;
         Ok(42)
@@ -97,7 +97,7 @@ fn scoped_contexts_nest_and_return_values() -> Result<()> {
 #[test]
 fn scoped_context_closes_after_body_error() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     let error = Context::new(Some("- "), None)
         .with(&mut dumper, |_| Err::<(), _>(Error::other("body failed")))
         .unwrap_err();
@@ -117,7 +117,8 @@ fn scoped_context_reports_close_errors_and_prefers_body_errors() {
             line_width: 1,
             ..DumperConfig::default()
         },
-    );
+    )
+    .unwrap();
     let context = Context::new(Some("too long"), None);
     let error = context.with(&mut dumper, |_| Ok(())).unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);

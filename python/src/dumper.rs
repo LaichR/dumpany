@@ -26,11 +26,11 @@ impl PyDumper {
     /// :param line_width: Preferred line width for wrapping text, in columns.
     ///     Defaults to 120. Normal indentation uses four spaces per level.
     /// :param new_line: Line-ending sequence, such as ``"\n"`` or ``"\r\n"``.
-    ///     Defaults to ``"\n"``.
+    ///     Defaults to ``"\n"``. Must not be empty.
     #[new]
     #[pyo3(signature = (stream, *, line_width=120, new_line="\n"))]
-    fn new(stream: Py<PyAny>, line_width: usize, new_line: &str) -> Self {
-        Self {
+    fn new(stream: Py<PyAny>, line_width: usize, new_line: &str) -> PyResult<Self> {
+        Ok(Self {
             inner: Dumper::new(
                 PythonWriter::new(stream),
                 DumperConfig {
@@ -38,8 +38,9 @@ impl PyDumper {
                     new_line: new_line.to_owned(),
                     ..DumperConfig::default()
                 },
-            ),
-        }
+            )
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?,
+        })
     }
 
     /// Dump any Python object as text or as a sequence of dump operations.

@@ -15,7 +15,7 @@ use tuple_list::tuple_list;
 fn iterator_dumps_empty_single_and_multiple_sequences() -> Result<()> {
     for (count, expected) in [(0, ""), (1, "1\n"), (3, "123\n")] {
         let writer = memory_writer();
-        let mut dumper = Dumper::new(writer, DumperConfig::default());
+        let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
         dumper.iterator((1..=count).map(Text))?;
         if count > 0 {
             dumper.new_line(None)?;
@@ -29,7 +29,7 @@ fn iterator_dumps_empty_single_and_multiple_sequences() -> Result<()> {
 fn join_emits_delimiters_only_between_elements() -> Result<()> {
     for (count, expected) in [(0, ""), (1, "1\n"), (3, "1,2,3\n")] {
         let writer = memory_writer();
-        let mut dumper = Dumper::new(writer, DumperConfig::default());
+        let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
         dumper.join((1..=count).map(Text), Text(","))?;
         if count > 0 {
             dumper.new_line(None)?;
@@ -42,7 +42,7 @@ fn join_emits_delimiters_only_between_elements() -> Result<()> {
 #[test]
 fn join_accepts_structured_delimiters() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     dumper.join(
         [Text("first"), Text("second"), Text("third")],
         NewLine(None),
@@ -72,7 +72,7 @@ impl Dump for DumpStep {
 #[test]
 fn iterator_stops_consuming_after_an_item_error() {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     let calls = Rc::new(RefCell::new(Vec::new()));
     let mut consumed = 0;
     let items = ["first", "second", "third"].into_iter().map(|name| {
@@ -94,7 +94,7 @@ fn iterator_stops_consuming_after_an_item_error() {
 fn join_stops_on_item_or_delimiter_errors() {
     for failure in ["first", "second", "delimiter"] {
         let writer = memory_writer();
-        let mut dumper = Dumper::new(writer, DumperConfig::default());
+        let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
         let calls = Rc::new(RefCell::new(Vec::new()));
         let step = |name| DumpStep {
             name,
@@ -121,7 +121,7 @@ fn join_stops_on_item_or_delimiter_errors() {
 #[test]
 fn empty_tuple_emits_nothing() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     tuple_list!().dump_head_tail(&mut dumper)?;
     dumper.tuple(tuple_list!())?;
     assert!(dumper.get_ref().is_empty());
@@ -131,7 +131,7 @@ fn empty_tuple_emits_nothing() -> Result<()> {
 #[test]
 fn single_element_is_dumped() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     dumper.tuple(tuple_list!(Text("hello")))?;
     dumper.new_line(None)?;
     assert_eq!(dumper.get_ref(), b"hello\n");
@@ -141,7 +141,7 @@ fn single_element_is_dumped() -> Result<()> {
 #[test]
 fn heterogeneous_elements_are_dumped_in_order() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     dumper.tuple(tuple_list!(
         Text("answer: "),
         Text(42),
@@ -156,7 +156,7 @@ fn heterogeneous_elements_are_dumped_in_order() -> Result<()> {
 #[test]
 fn tuple_list_can_be_dumped_repeatedly() -> Result<()> {
     let writer = memory_writer();
-    let mut dumper = Dumper::new(writer, DumperConfig::default());
+    let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
     let items = tuple_list!(Text("hello"), NewLine(None));
     items.dump_head_tail(&mut dumper)?;
     items.dump_head_tail(&mut dumper)?;
@@ -185,7 +185,7 @@ impl Dump for Step {
 fn errors_in_head_or_tail_stop_remaining_elements() {
     for failing_index in [0, 1] {
         let writer = memory_writer();
-        let mut dumper = Dumper::new(writer, DumperConfig::default());
+        let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
         let calls = Rc::new(RefCell::new(Vec::new()));
         let step = |name, index| Step {
             name,
