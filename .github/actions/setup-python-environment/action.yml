@@ -1,0 +1,11 @@
+name: Set up Python environment
+description: Create a virtual environment and activate it for subsequent steps.
+
+runs:
+  using: composite
+  steps:
+    - name: Create virtual environment
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: python "$ACTION_PATH/setup_environment.py"
