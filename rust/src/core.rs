@@ -356,7 +356,7 @@ impl<T: Write> Dumper<T> {
         if let Some(recorder) = &mut self.recorder {
             recorder.dec_indent(1)?;
         } else {
-            self.indent -= 1;
+            self.indent = self.indent.saturating_sub(1);
         }
         Ok(())
     }
@@ -367,18 +367,7 @@ impl<T: Write> Dumper<T> {
             return recorder.new_line(change_indentation);
         }
         self.flush_line()?;
-        if let Some(indentation) = change_indentation {
-            match indentation {
-                Increment(how_mutch) => self.indent += how_mutch as usize,
-                Decrement(how_mutch) => {
-                    self.indent -= if how_mutch as usize <= self.indent {
-                        how_mutch as usize
-                    } else {
-                        self.indent
-                    };
-                }
-            };
-        }
+        self.apply_indentation_change(change_indentation);
         Ok(())
     }
 
@@ -460,12 +449,7 @@ impl<T: Write> Dumper<T> {
                     Decrement(count) => recorder.dec_indent(count)?,
                 }
             } else {
-                match indentation {
-                    Increment(count) => self.indent += usize::from(count),
-                    Decrement(count) => {
-                        self.indent = self.indent.saturating_sub(usize::from(count))
-                    }
-                }
+                self.apply_indentation_change(Some(indentation));
             }
         }
         Ok(())
@@ -569,6 +553,16 @@ impl<T: Write> Dumper<T> {
             self.process_line(current, false)?;
         }
         Ok(())
+    }
+
+    fn apply_indentation_change(&mut self, indentation: Option<Indentation>) {
+        match indentation {
+            Some(Indentation::Increment(num)) => self.indent += usize::from(num),
+            Some(Indentation::Decrement(num)) => {
+                self.indent = self.indent.saturating_sub(usize::from(num))
+            }
+            None => {}
+        }
     }
 
     fn set_left_margin(&mut self) {
