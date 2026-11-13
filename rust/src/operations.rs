@@ -10,7 +10,7 @@ use crate::core::{Dump, Dumper, Indentation, NewLine, Text};
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct CloseContext;
 
-impl Dump for Context<'_, 'static> {
+impl Dump for Context<'static> {
     fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
         dumper.open_context(self.prefix, self.name)
     }
@@ -18,7 +18,7 @@ impl Dump for Context<'_, 'static> {
 
 impl Dump for CloseContext {
     fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
-        dumper.close_context()
+        dumper.close_context(None)
     }
 }
 
@@ -33,11 +33,11 @@ pub trait FromBytes<'a>: Sized {
 }
 
 #[derive(Debug)]
-pub enum Operation<'parent, 'data> {
+pub enum Operation<'data> {
     Text(Text<&'data str>),
     NewLine(NewLine),
     Indentation(Indentation),
-    OpenContext(Context<'parent, 'data>),
+    OpenContext(Context<'data>),
     CloseContext(CloseContext),
 }
 
@@ -162,9 +162,8 @@ impl ToBytes for CloseContext {
     }
 }
 
-impl<'parent, 'a: 'parent> FromBytes<'a> for Operation<'parent, 'a> {
-    /// Decode one record, leaving input unchanged on error. Opening records
-    /// contain metadata only; Context::next_event attaches the live cursor.
+impl<'a> FromBytes<'a> for Operation<'a> {
+    /// Decode one record, leaving input unchanged on error.
     fn from_bytes(input: &mut &'a [u8]) -> Result<Self> {
         let mut remaining = *input;
         let operation = match byte(&mut remaining)? {
@@ -175,7 +174,7 @@ impl<'parent, 'a: 'parent> FromBytes<'a> for Operation<'parent, 'a> {
                 _ => return Err(invalid("invalid optional indentation tag")),
             })),
             INDENTATION => Self::Indentation(indent(&mut remaining)?),
-            OPEN_CONTEXT => Self::OpenContext(Context::from_metadata(
+            OPEN_CONTEXT => Self::OpenContext(Context::new(
                 optional_text(&mut remaining)?,
                 optional_text(&mut remaining)?,
             )),

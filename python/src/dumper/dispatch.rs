@@ -171,12 +171,7 @@ fn dump_context(
     let closed = dumper
         .try_borrow_mut()
         .map_err(PyErr::from)
-        .and_then(|mut dumper| {
-            dumper
-                .inner
-                .close_context_with_indentation(indentation)
-                .map_err(PyErr::from)
-        });
+        .and_then(|mut dumper| dumper.inner.close_context(indentation).map_err(PyErr::from));
     // Match Rust Context::with: the content error takes precedence over closing.
     result.and(closed)
 }

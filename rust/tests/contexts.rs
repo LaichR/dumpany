@@ -14,13 +14,13 @@ fn closing_context_adjusts_indentation_after_its_final_line() -> Result<()> {
         }
         dumper.open_context(None, None)?;
         dumper.text("heading")?;
-        dumper.close_context_with_indentation(Some(Indentation::Increment(2)))?;
+        dumper.close_context(Some(Indentation::Increment(2)))?;
         dumper.open_context(None, None)?;
         dumper.text("body")?;
-        dumper.close_context_with_indentation(Some(Indentation::Decrement(255)))?;
+        dumper.close_context(Some(Indentation::Decrement(255)))?;
         dumper.text("tail")?;
         if nested {
-            dumper.close_context()?;
+            dumper.close_context(None)?;
         }
         assert_eq!(
             dumper.into_inner().unwrap(),
@@ -37,33 +37,6 @@ fn scoped_context_accepts_runtime_metadata() -> Result<()> {
     let mut dumper = Dumper::new(Vec::new(), DumperConfig::default())?;
     Context::new(Some(&prefix), Some(&name)).with(&mut dumper, |d| d.text("hello"))?;
     assert_eq!(dumper.into_inner().unwrap(), b"- hello\n");
-    Ok(())
-}
-
-#[test]
-fn recorder_encodes_runtime_metadata_before_sources_are_dropped() -> Result<()> {
-    use dumpany::recorder::Recorder;
-
-    let mut recorder = {
-        let prefix = String::from("- ");
-        let name = String::from("runtime");
-        Recorder::new(Some(&prefix), Some(&name))?
-    };
-    {
-        let prefix = String::from("* ");
-        let name = String::from("child");
-        recorder.open_context(Some(&prefix), Some(&name))?;
-    }
-    recorder.text("hello")?;
-    recorder.close_context()?;
-    recorder.close_context()?;
-
-    let mut expected = Recorder::new(Some("- "), Some("runtime"))?;
-    expected.open_context(Some("* "), Some("child"))?;
-    expected.text("hello")?;
-    expected.close_context()?;
-    expected.close_context()?;
-    assert_eq!(recorder.encoded_content(), expected.encoded_content());
     Ok(())
 }
 

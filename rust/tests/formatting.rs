@@ -122,10 +122,10 @@ fn test_context_text_dump() {
         d.open_context(Some("- "), None)?;
         Text("This is the first enumeration item and it might be very long so that it does not fit a single line\n")
             .dump(&mut d)?;
-        d.close_context()?;
+        d.close_context(None)?;
         d.open_context(Some("- "), None)?;
         Text("This is the second enueration itme\n").dump(&mut d)?;
-        d.close_context()?;
+        d.close_context(None)?;
 
         NewLine(Some(Indentation::Decrement(1))).dump(&mut d)?;
         Ok(())
