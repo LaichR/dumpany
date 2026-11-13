@@ -8,19 +8,12 @@ use crate::core::{Indentation, NewLine, Text};
 use crate::operations::{CloseContext, ToBytes};
 
 #[derive(Default)]
-pub struct Recorder {
+pub(crate) struct Recorder {
     encoded_content: BytesMut,
     context_depth: usize,
 }
 
 impl Recorder {
-    /// Start recording by encoding the root context immediately.
-    pub fn new(prefix: Option<&str>, name: Option<&str>) -> Result<Self> {
-        let mut recorder = Self::default();
-        recorder.open_context(prefix, name)?;
-        Ok(recorder)
-    }
-
     pub fn text<T: Display>(&mut self, text: T) -> Result<()> {
         Text(text).to_bytes(&mut self.encoded_content)
     }
@@ -58,6 +51,16 @@ impl Recorder {
 
     pub fn encoded_content(&self) -> &[u8] {
         &self.encoded_content
+    }
+}
+
+#[cfg(test)]
+impl Recorder {
+    /// Start recording by encoding the root context immediately.
+    pub fn new(prefix: Option<&str>, name: Option<&str>) -> Result<Self> {
+        let mut recorder = Self::default();
+        recorder.open_context(prefix, name)?;
+        Ok(recorder)
     }
 
     /// Transfer the buffer without copying.
