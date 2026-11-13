@@ -1,3 +1,17 @@
+//! Format structured text with wrapping, indentation, and aligned contexts.
+//!
+//! # Examples
+//!
+//! ```
+//! use dumpany::core::{Dumper, DumperConfig, Text};
+//!
+//! let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+//! out.join([Text("one"), Text("two")], Text(", "))?;
+//! let bytes = out.into_inner().map_err(|error| error.into_parts().0)?;
+//! assert_eq!(bytes, b"one, two\n");
+//! # Ok::<(), std::io::Error>(())
+//! ```
+
 use crate::core::Indentation::{Decrement, Increment};
 use crate::dump_tuple::DumpHeadTail;
 use crate::operations::{FromBytes, Operation};
@@ -8,27 +22,52 @@ use std::io::{Error, ErrorKind, Result, Write};
 
 const DEFAULT_WIDTH: usize = 120_usize;
 
-/// Select a lazily created context prologue or epilogue.
-/// Requires an explicit context name, which remains valid until root flushing.
+/// Select the prologue or epilogue of a named context.
+///
+/// Use with [`Dumper::select_target`] or [`Dumper::with_target`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target<'a> {
+    /// Content before the named context's body, after its prefix.
     Prologue(&'a str),
+    /// Content after the named context's body.
     Epilogue(&'a str),
 }
 
+/// A change to the indentation level.
+///
+/// Each level corresponds to [`DumperConfig::indent_width`] spaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Indentation {
+    /// Increase indentation by the given number of levels.
     Increment(u8),
+    /// Decrease indentation by the given number of levels, stopping at zero.
     Decrement(u8),
 }
 
+/// Enables a value to emit formatted output through a [`Dumper`].
 pub trait Dump {
+    /// Emit this value's formatted output.
+    ///
+    /// # Arguments
+    ///
+    /// * `out` — Dumper receiving the output.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if formatting or writing fails.
     fn dump<T: Write>(&self, out: &mut Dumper<T>) -> Result<()>;
 }
 
+/// Configure line endings, indentation, and wrapping for a [`Dumper`].
+///
+/// Defaults to LF line endings, four spaces per indentation level, and a line
+/// width of 120 bytes.
 pub struct DumperConfig {
+    /// Nonempty sequence used to separate lines.
     pub new_line: String,
+    /// Number of spaces per indentation level.
     pub indent_width: usize,
+    /// Preferred line width in UTF-8 bytes, including indentation.
     pub line_width: usize,
 }
 
@@ -49,6 +88,30 @@ enum DumperState {
     Failed,
 }
 
+/// Produce formatted text with wrapping, indentation, and aligned contexts.
+///
+/// Content can be supplied out of order: a named context's prologue and epilogue
+/// appear before and after its body regardless of when they are supplied.
+/// Finish output explicitly with [`Self::dump_all`] or [`Self::into_inner`];
+/// dropping the dumper does not finish output.
+///
+/// Formatting operations return an error after finalization or a writer failure.
+///
+/// # Examples
+///
+/// ```
+/// use dumpany::core::{Dumper, DumperConfig, Target};
+///
+/// let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+/// out.open_context(None, Some("item"))?;
+/// out.text("body")?;
+/// out.with_target(Target::Prologue("item"), |out| out.text("before "))?;
+/// out.with_target(Target::Epilogue("item"), |out| out.text(" after"))?;
+/// out.close_context(None)?;
+/// let bytes = out.into_inner().map_err(|error| error.into_parts().0)?;
+/// assert_eq!(bytes, b"before body after\n");
+/// # Ok::<(), std::io::Error>(())
+/// ```
 pub struct Dumper<T: Write> {
     state: DumperState,
     writer: T,
@@ -69,25 +132,33 @@ struct SelectedTarget {
     prologue: bool,
 }
 
-/// A finalization error that retains the writer, discarding pending output.
-/// The writer may contain a partial write, not necessarily a complete line.
+/// Recover the writer and error after [`Dumper::into_inner`] fails.
+///
+/// The writer may contain incomplete output. Pending output is discarded and
+/// failed output is not retried.
 pub struct IntoInnerError<T: Write> {
     error: Error,
     writer: T,
 }
 
 impl<T: Write> IntoInnerError<T> {
+    /// Inspect the error that prevented finalization.
+    ///
+    /// Returns a reference to the original error.
     pub fn error(&self) -> &Error {
         &self.error
     }
 
     /// Return the writer as-is without retrying failed output.
+    ///
+    /// Returns the recovered writer, which may contain incomplete output.
     pub fn into_inner(self) -> T {
         self.writer
     }
 
     /// Return the original error and writer without retrying output.
-    /// Any remaining buffered output is discarded.
+    ///
+    /// Returns an `(error, writer)` pair. Pending output is discarded.
     pub fn into_parts(self) -> (Error, T) {
         (self.error, self.writer)
     }
@@ -113,11 +184,21 @@ impl<T: Write> std::error::Error for IntoInnerError<T> {
     }
 }
 
+/// Make a [`Display`] value usable as a [`Dump`] operation.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Text<T>(pub T);
+pub struct Text<T>(
+    /// Value to format as text.
+    pub T,
+);
 
+/// Insert a line break with an optional indentation change for following lines.
+///
+/// The default leaves indentation unchanged.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub struct NewLine(pub Option<Indentation>);
+pub struct NewLine(
+    /// Change applied after the break, or `None` to leave indentation unchanged.
+    pub Option<Indentation>,
+);
 
 impl Dump for NewLine {
     fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
@@ -134,9 +215,15 @@ impl<T: Display> Dump for Text<T> {
 impl<T: Write> Dumper<T> {
     /// Create a dumper with the supplied writer and configuration.
     ///
-    /// # Errors
+    /// # Arguments
     ///
-    /// Returns [`ErrorKind::InvalidInput`] if `config.new_line` is empty.
+    /// * `writer` — Destination for formatted output.
+    /// * `config` — Line ending, indentation, and wrapping settings.
+    ///
+    /// # Returns
+    ///
+    /// Returns a dumper with zero indentation, or [`ErrorKind::InvalidInput`]
+    /// if `config.new_line` is empty.
     pub fn new(writer: T, config: DumperConfig) -> Result<Self> {
         if config.new_line.is_empty() {
             return Err(Error::new(
@@ -159,14 +246,21 @@ impl<T: Write> Dumper<T> {
         })
     }
 
-    /// Borrow the writer without flushing buffered output.
+    /// Inspect the output writer.
+    ///
+    /// Returns a shared reference to the writer without flushing pending output.
     pub fn get_ref(&self) -> &T {
         &self.writer
     }
 
-    /// Finalize the dump and return its writer. On failure, the error retains
-    /// only the writer and original error; remaining buffered output is discarded.
-    /// Failed output is never retried and may leave a partial write in the writer.
+    /// Finish output and recover the writer.
+    ///
+    /// Closes all contexts, emits pending output, and flushes the writer.
+    ///
+    /// # Returns
+    ///
+    /// Returns the writer on success. On failure, returns an [`IntoInnerError`]
+    /// providing the original error and writer; pending output is discarded.
     pub fn into_inner(mut self) -> std::result::Result<T, IntoInnerError<T>> {
         match self.dump_all() {
             Ok(()) => Ok(self.writer),
@@ -186,8 +280,15 @@ impl<T: Write> Dumper<T> {
     }
 
     /// Close all contexts, emit a pending line, and flush the writer.
-    /// Never closes the writer. Successful repeated calls do nothing; failures are
-    /// terminal because output may already have been partially written.
+    ///
+    /// Leaves the writer open. After success, repeated calls do nothing.
+    /// Select main before calling this method.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if a target is selected, the
+    /// dumper has failed, or finishing output fails. A failure while finishing
+    /// output prevents further use of the dumper.
     pub fn dump_all(&mut self) -> Result<()> {
         if self.state == DumperState::Finalized {
             return Ok(());
@@ -216,9 +317,21 @@ impl<T: Write> Dumper<T> {
         result
     }
 
-    /// Select where subsequent operations are recorded, without opening a context.
-    /// Requires an open context and a registered name. Selecting another target
-    /// before selecting main again is forbidden. Does not write or flush output.
+    /// Direct subsequent output to a named context's prologue or epilogue.
+    ///
+    /// The named context must have been opened beforehand. It may already be
+    /// closed while the outermost context remains open. Call [`Self::select_main`]
+    /// before selecting another target.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` — Section and context name to receive output.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, [`ErrorKind::NotFound`] for an unknown name,
+    /// or [`ErrorKind::InvalidInput`] if no context is open or a target is already
+    /// selected. Also returns an error if the dumper is finalized or has failed.
     pub fn select_target(&mut self, target: Target<'_>) -> Result<()> {
         self.ensure_active()?;
         if self.selected_target.is_some() {
@@ -256,10 +369,15 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
-    /// Save the selected target and restore main recording. Already on main
-    /// is a no-op. Does not close the enclosing context or flush output.
-    /// Open target contexts are retained and can be continued by selecting the
-    /// same target again. They must be closed before the root is rendered.
+    /// Direct subsequent output back to the main context body.
+    ///
+    /// Does nothing if main is already selected. Contexts opened within a target
+    /// can be continued by selecting that target again; close them before closing
+    /// the outermost main context.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())`, or an error if the dumper is finalized or has failed.
     pub fn select_main(&mut self) -> Result<()> {
         self.ensure_active()?;
         let Some(selected) = self.selected_target.take() else {
@@ -277,9 +395,20 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
-    /// Record a prologue or epilogue, then select main again, including on error.
-    /// Open target contexts may be continued in later selections. The closure's
-    /// error takes precedence over a restoration error. Panics are not handled.
+    /// Produce a prologue or epilogue through a closure.
+    ///
+    /// Selects main again after the closure returns, including on error, but not
+    /// if the closure panics. See [`Dumper`] for an example.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` — Section and context name to receive output.
+    /// * `body` — Closure that produces the section's content.
+    ///
+    /// # Returns
+    ///
+    /// Returns the closure's value on success, or an error from selection, the
+    /// closure, or restoring main. The closure's error takes precedence.
     pub fn with_target<R>(
         &mut self,
         target: Target<'_>,
@@ -295,6 +424,15 @@ impl<T: Write> Dumper<T> {
     }
 
     /// Append text, treating occurrences of the configured line ending as line breaks.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` — Value whose [`Display`] representation is appended.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if formatting or writing fails,
+    /// or the dumper is finalized or has failed.
     pub fn text(&mut self, text: impl Display) -> Result<()> {
         self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
@@ -305,6 +443,19 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
+    /// Dump a sequence with a delimiter between adjacent items.
+    ///
+    /// An empty sequence emits nothing. See the [module example](self).
+    ///
+    /// # Arguments
+    ///
+    /// * `items` — Values to dump in iteration order.
+    /// * `delimiter` — Value to dump between adjacent items.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success. Stops at the first error from an item or
+    /// delimiter. Also returns an error if the dumper is finalized or has failed.
     pub fn join<I, D>(&mut self, items: I, delimiter: D) -> Result<()>
     where
         I: IntoIterator,
@@ -323,6 +474,16 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
+    /// Dump a sequence in order without adding separators.
+    ///
+    /// # Arguments
+    ///
+    /// * `items` — Values to dump in iteration order.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or the first error from dumping an item.
+    /// Also returns an error if the dumper is finalized or has failed.
     pub fn iterator<I>(&mut self, items: I) -> Result<()>
     where
         I: IntoIterator,
@@ -336,11 +497,35 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
+    /// Dump a nested tuple list without adding separators.
+    ///
+    /// # Arguments
+    ///
+    /// * `tuple` — Values arranged as `(head, tail)` pairs ending in `()`.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or the first error from dumping an element.
+    /// Also returns an error if the dumper is finalized or has failed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dumpany::core::{Dumper, DumperConfig, Text};
+    /// let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+    /// out.tuple((Text("answer: "), (Text(42), ())))?;
+    /// let bytes = out.into_inner().map_err(|error| error.into_parts().0)?;
+    /// assert_eq!(bytes, b"answer: 42\n");
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn tuple<Tuple: DumpHeadTail>(&mut self, tuple: Tuple) -> Result<()> {
         self.ensure_active()?;
         tuple.dump_head_tail(self)
     }
 
+    /// Increase indentation by one level without inserting a line break.
+    ///
+    /// Returns `Ok(())`, or an error if the dumper is finalized or has failed.
     pub fn inc_indent(&mut self) -> Result<()> {
         self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
@@ -351,6 +536,10 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
+    /// Decrease indentation by one level without inserting a line break.
+    ///
+    /// Stops at zero. Returns `Ok(())`, or an error if the dumper is finalized
+    /// or has failed.
     pub fn dec_indent(&mut self) -> Result<()> {
         self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
@@ -361,6 +550,19 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
+    /// End the current line and optionally adjust indentation for following lines.
+    ///
+    /// An empty current line still produces a line break.
+    ///
+    /// # Arguments
+    ///
+    /// * `change_indentation` — Change applied after the break, or `None` to
+    ///   leave indentation unchanged.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if writing fails or the dumper
+    /// is finalized or has failed.
     pub fn new_line(&mut self, change_indentation: Option<Indentation>) -> Result<()> {
         self.ensure_active()?;
         if let Some(recorder) = &mut self.recorder {
@@ -371,6 +573,21 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
+    /// Open an aligned context with an optional prefix and name.
+    ///
+    /// Continuation lines align with the content after the prefix. Contexts may
+    /// nest; their output is emitted when the outermost context closes.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` — Optional text before the content; must fit on the current line.
+    /// * `name` — Optional identifier for selecting a prologue or epilogue. Must
+    ///   be unique until the outermost context closes.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, [`ErrorKind::AlreadyExists`] for a duplicate
+    /// name, or an error if the dumper is finalized or has failed.
     pub fn open_context(&mut self, prefix: Option<&str>, name: Option<&str>) -> Result<()> {
         self.ensure_active()?;
         if name.is_some_and(|name| self.names.iter().any(|registered| registered == name)) {
@@ -384,6 +601,38 @@ impl<T: Write> Dumper<T> {
             .open_context(prefix, name)?;
         if let Some(name) = name {
             self.names.push(name.to_owned());
+        }
+        Ok(())
+    }
+
+    /// Close the current context and optionally adjust indentation for following output.
+    ///
+    /// Closing the last open main context emits the complete content of all
+    /// contexts, including their prologues and epilogues, to the writer.
+    /// Each context ends its final line. If no context is open, only the requested
+    /// indentation change is applied. Decrements stop at zero.
+    ///
+    /// # Arguments
+    ///
+    /// * `indentation` — Change applied after closing, or `None` to leave
+    ///   indentation unchanged.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if output fails, target contexts
+    /// remain open when closing the last open main context, a target tries to
+    /// close a main context, or the dumper is finalized or has failed.
+    pub fn close_context(&mut self, indentation: Option<Indentation>) -> Result<()> {
+        self.close_current_context()?;
+        if let Some(indentation) = indentation {
+            if let Some(recorder) = &mut self.recorder {
+                match indentation {
+                    Increment(count) => recorder.inc_indent(count)?,
+                    Decrement(count) => recorder.dec_indent(count)?,
+                }
+            } else {
+                self.apply_indentation_change(Some(indentation));
+            }
         }
         Ok(())
     }
@@ -431,26 +680,6 @@ impl<T: Write> Dumper<T> {
             let epilogues = std::mem::take(&mut self.epilogues);
             self.names.clear();
             self.dump_recorder(&prologues, &epilogues, &recorder)?;
-        }
-        Ok(())
-    }
-
-    /// Close an aligned block, then explicitly adjust normal indentation.
-    /// No additional line break is emitted. Decrements stop at zero.
-    pub fn close_context(
-        &mut self,
-        indentation: Option<Indentation>,
-    ) -> Result<()> {
-        self.close_current_context()?;
-        if let Some(indentation) = indentation {
-            if let Some(recorder) = &mut self.recorder {
-                match indentation {
-                    Increment(count) => recorder.inc_indent(count)?,
-                    Decrement(count) => recorder.dec_indent(count)?,
-                }
-            } else {
-                self.apply_indentation_change(Some(indentation));
-            }
         }
         Ok(())
     }
