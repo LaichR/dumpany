@@ -21,7 +21,7 @@ fn finalizes_pending_lines_once_and_leaves_writer_usable() -> io::Result<()> {
         assert!(d.inc_indent().is_err());
         assert!(d.dec_indent().is_err());
         assert!(d.open_context(None, None).is_err());
-        assert!(d.close_context().is_err());
+        assert!(d.close_context(None).is_err());
         assert!(
             d.iterator(std::iter::empty::<dumpany::core::NewLine>())
                 .is_err()

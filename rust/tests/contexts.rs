@@ -14,13 +14,13 @@ fn closing_context_adjusts_indentation_after_its_final_line() -> Result<()> {
         }
         dumper.open_context(None, None)?;
         dumper.text("heading")?;
-        dumper.close_context_with_indentation(Some(Indentation::Increment(2)))?;
+        dumper.close_context(Some(Indentation::Increment(2)))?;
         dumper.open_context(None, None)?;
         dumper.text("body")?;
-        dumper.close_context_with_indentation(Some(Indentation::Decrement(255)))?;
+        dumper.close_context(Some(Indentation::Decrement(255)))?;
         dumper.text("tail")?;
         if nested {
-            dumper.close_context()?;
+            dumper.close_context(None)?;
         }
         assert_eq!(
             dumper.into_inner().unwrap(),

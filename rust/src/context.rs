@@ -23,7 +23,7 @@ impl<'data> Context<'data> {
     ) -> Result<R> {
         dumper.open_context(self.prefix, self.name)?;
         let result = body(dumper);
-        let closed = dumper.close_context();
+        let closed = dumper.close_context(None);
         match result {
             Ok(value) => closed.map(|()| value),
             Err(error) => Err(error),

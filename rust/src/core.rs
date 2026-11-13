@@ -201,7 +201,7 @@ impl<T: Write> Dumper<T> {
         }
         let result = (|| {
             while self.recorder.is_some() {
-                self.close_context()?;
+                self.close_context(None)?;
             }
             if !self.current_line.is_empty() {
                 self.flush_line()?;
@@ -388,7 +388,7 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
-    pub fn close_context(&mut self) -> Result<()> {
+    fn close_current_context(&mut self) -> Result<()> {
         self.ensure_active()?;
         if self.selected_target.is_none()
             // the root context is beeing closed
@@ -437,11 +437,11 @@ impl<T: Write> Dumper<T> {
 
     /// Close an aligned block, then explicitly adjust normal indentation.
     /// No additional line break is emitted. Decrements stop at zero.
-    pub fn close_context_with_indentation(
+    pub fn close_context(
         &mut self,
         indentation: Option<Indentation>,
     ) -> Result<()> {
-        self.close_context()?;
+        self.close_current_context()?;
         if let Some(indentation) = indentation {
             if let Some(recorder) = &mut self.recorder {
                 match indentation {

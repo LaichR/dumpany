@@ -18,7 +18,7 @@ impl Dump for Context<'static> {
 
 impl Dump for CloseContext {
     fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
-        dumper.close_context()
+        dumper.close_context(None)
     }
 }
 
