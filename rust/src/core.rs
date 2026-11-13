@@ -73,7 +73,7 @@ struct SelectedTarget {
 /// The writer may contain a partial write, not necessarily a complete line.
 pub struct IntoInnerError<T: Write> {
     error: Error,
-    writer: Box<T>,
+    writer: T,
 }
 
 impl<T: Write> IntoInnerError<T> {
@@ -83,13 +83,13 @@ impl<T: Write> IntoInnerError<T> {
 
     /// Return the writer as-is without retrying failed output.
     pub fn into_inner(self) -> T {
-        *self.writer
+        self.writer
     }
 
     /// Return the original error and writer without retrying output.
     /// Any remaining buffered output is discarded.
     pub fn into_parts(self) -> (Error, T) {
-        (self.error, *self.writer)
+        (self.error, self.writer)
     }
 }
 
@@ -172,7 +172,7 @@ impl<T: Write> Dumper<T> {
             Ok(()) => Ok(self.writer),
             Err(error) => Err(IntoInnerError {
                 error,
-                writer: Box::new(self.writer),
+                writer: self.writer,
             }),
         }
     }
