@@ -1,4 +1,4 @@
-//! Context metadata and scoped formatting.
+//! Define aligned contexts and produce their content through closures.
 use std::io::{Error, ErrorKind, Result, Write};
 
 use crate::core::Dumper;
@@ -6,16 +6,50 @@ use crate::operations::{FromBytes, Operation, ToBytes, put_optional_text};
 use bytes::{BufMut, BytesMut};
 
 /// An aligned context with an optional prefix and name.
+///
+/// Use [`Self::with`] to produce the context's content. Continuation lines align
+/// with the content after the prefix.
 #[derive(Debug)]
 pub struct Context<'data> {
+    /// Text placed before the context's content.
     pub prefix: Option<&'data str>,
+    /// Identifier for selecting the context's prologue or epilogue.
     pub name: Option<&'data str>,
 }
 
 impl<'data> Context<'data> {
-    /// Run a closure inside this context, closing it even if the closure fails.
-    /// If both fail, the closure's error takes precedence. Panics are not handled.
-    /// The closure must leave any contexts it opens balanced.
+    /// Produce this context's content through a closure.
+    ///
+    /// Closes the context after the closure returns, including on error, but not
+    /// if it panics. The closure must close any contexts it opens.
+    ///
+    /// # Arguments
+    ///
+    /// * `dumper` — Destination for the formatted output.
+    /// * `body` — Closure that produces the context's content.
+    ///
+    /// # Returns
+    ///
+    /// Returns the closure's value on success, or an error from opening the
+    /// context, the closure, or closing the context. The closure's error takes
+    /// precedence over a closing error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dumpany::context::Context;
+    /// use dumpany::core::{Dumper, DumperConfig};
+    ///
+    /// let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+    /// Context::new(Some("- "), None).with(&mut out, |out| {
+    ///     out.text("first")?;
+    ///     out.new_line(None)?;
+    ///     out.text("second")
+    /// })?;
+    /// let bytes = out.into_inner().map_err(|error| error.into_parts().0)?;
+    /// assert_eq!(bytes, b"- first\n  second\n");
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn with<W: Write, R>(
         &self,
         dumper: &mut Dumper<W>,
@@ -30,7 +64,17 @@ impl<'data> Context<'data> {
         }
     }
 
-    /// Context metadata for recording. Only name and prefix are encoded.
+    /// Describe a context to use with [`Self::with`].
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` — Optional text before the content; must fit on the current line.
+    /// * `name` — Optional identifier for selecting a prologue or epilogue. Must
+    ///   be unique until the last open main context closes.
+    ///
+    /// # Returns
+    ///
+    /// Returns a context description without opening it in a dumper.
     pub fn new(prefix: Option<&'data str>, name: Option<&'data str>) -> Self {
         Self { prefix, name }
     }

@@ -1,5 +1,6 @@
-//! Compact operation records. Lengths are little-endian u64 byte counts.
-//! Decoding consumes one record and borrows text from the input buffer.
+//! Formatting operations and conversion between operations and bytes.
+//!
+//! Use [`ToBytes`] to encode operations and [`FromBytes`] to decode them.
 use bytes::{BufMut, BytesMut};
 use std::fmt::{self, Display, Write as FmtWrite};
 use std::io::{Error, ErrorKind, Result, Write};
@@ -7,6 +8,7 @@ use std::io::{Error, ErrorKind, Result, Write};
 use crate::context::Context;
 use crate::core::{Dump, Dumper, Indentation, NewLine, Text};
 
+/// Close the current context without changing indentation as a [`Dump`] operation.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct CloseContext;
 
@@ -22,22 +24,67 @@ impl Dump for CloseContext {
     }
 }
 
-/// Append a complete operation record without allocating an intermediate buffer.
+/// Enables an operation to be encoded as bytes.
 pub trait ToBytes {
+    /// Append this operation to an encoded sequence.
+    ///
+    /// # Arguments
+    ///
+    /// * `out` — Buffer receiving the operation after its existing contents.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if encoding fails, such as when
+    /// a text value's [`Display`] implementation fails.
     fn to_bytes(&self, out: &mut BytesMut) -> Result<()>;
 }
 
-/// Decode one operation of the expected type.
+/// Enables an operation to be decoded from bytes.
 pub trait FromBytes<'a>: Sized {
+    /// Decode the next operation of the expected type.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` — Encoded sequence. Advances past the operation on success and
+    ///   remains unchanged on error.
+    ///
+    /// # Returns
+    ///
+    /// Returns the decoded operation, borrowing text from the input where needed.
+    /// Returns [`ErrorKind::UnexpectedEof`] for incomplete input or
+    /// [`ErrorKind::InvalidData`] for invalid data or an unexpected operation type.
     fn from_bytes(input: &mut &'a [u8]) -> Result<Self>;
 }
 
+/// Represent any supported formatting operation decoded from bytes.
+///
+/// Text and context descriptions borrow their strings from the input.
+///
+/// # Examples
+///
+/// ```
+/// use bytes::BytesMut;
+/// use dumpany::core::Text;
+/// use dumpany::operations::{FromBytes, Operation, ToBytes};
+///
+/// let mut bytes = BytesMut::new();
+/// Text("hello").to_bytes(&mut bytes)?;
+/// let mut input = bytes.as_ref();
+/// assert!(matches!(Operation::from_bytes(&mut input)?, Operation::Text(Text("hello"))));
+/// assert!(input.is_empty());
+/// # Ok::<(), std::io::Error>(())
+/// ```
 #[derive(Debug)]
 pub enum Operation<'data> {
+    /// Append the supplied text.
     Text(Text<&'data str>),
+    /// Insert a line break and optionally change indentation.
     NewLine(NewLine),
+    /// Change indentation without inserting a line break.
     Indentation(Indentation),
+    /// Open a context with the supplied prefix and name.
     OpenContext(Context<'data>),
+    /// Close the current context without changing indentation.
     CloseContext(CloseContext),
 }
 
