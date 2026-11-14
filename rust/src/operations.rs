@@ -10,7 +10,7 @@ use crate::core::{Dump, Dumper, Indentation, NewLine, Text};
 
 /// Close the current context without changing indentation as a [`Dump`] operation.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub struct CloseContext;
+pub(crate) struct CloseContext;
 
 impl Dump for Context<'static> {
     fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
@@ -25,7 +25,7 @@ impl Dump for CloseContext {
 }
 
 /// Enables an operation to be encoded as bytes.
-pub trait ToBytes {
+pub(crate) trait ToBytes {
     /// Append this operation to an encoded sequence.
     ///
     /// # Arguments
@@ -40,7 +40,7 @@ pub trait ToBytes {
 }
 
 /// Enables an operation to be decoded from bytes.
-pub trait FromBytes<'a>: Sized {
+pub(crate) trait FromBytes<'a>: Sized {
     /// Decode the next operation of the expected type.
     ///
     /// # Arguments
@@ -59,23 +59,8 @@ pub trait FromBytes<'a>: Sized {
 /// Represent any supported formatting operation decoded from bytes.
 ///
 /// Text and context descriptions borrow their strings from the input.
-///
-/// # Examples
-///
-/// ```
-/// use bytes::BytesMut;
-/// use dumpany::core::Text;
-/// use dumpany::operations::{FromBytes, Operation, ToBytes};
-///
-/// let mut bytes = BytesMut::new();
-/// Text("hello").to_bytes(&mut bytes)?;
-/// let mut input = bytes.as_ref();
-/// assert!(matches!(Operation::from_bytes(&mut input)?, Operation::Text(Text("hello"))));
-/// assert!(input.is_empty());
-/// # Ok::<(), std::io::Error>(())
-/// ```
 #[derive(Debug)]
-pub enum Operation<'data> {
+pub(crate) enum Operation<'data> {
     /// Append the supplied text.
     Text(Text<&'data str>),
     /// Insert a line break and optionally change indentation.
