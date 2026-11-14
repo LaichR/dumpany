@@ -1,4 +1,4 @@
-//! Encodes operations into a byte buffer. Lifecycle and routing belong to the caller.
+//! Internal recording support for the formatter.
 use bytes::BytesMut;
 use std::fmt::Display;
 use std::io::Result;
