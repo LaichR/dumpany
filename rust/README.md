@@ -8,8 +8,9 @@ indentation, and alignment.
 - `core`: the dumper, configuration, and traits for composing output.
 - `context`: aligned text blocks with optional prefixes and names.
 - `dump_tuple`: composition of heterogeneous dump operations using tuples.
-- `operations`: operation records and their encoding and decoding.
-- `recorder`: buffering of operations for later output.
+
+The internal `operations` and `recorder` modules support recording and rendering
+and are not part of the public API.
 
 Implementation and unit tests are in `src/`; public API integration tests are in
 `tests/`. Formatting fixtures are in `test-data/`.
@@ -27,6 +28,9 @@ cargo test --locked -p dumpany
 To apply formatting, run `cargo fmt --all` without `-- --check`.
 
 ## Documentation
+
+See the [Rust documentation](https://laichr.github.io/dumpany/rust/dumpany/)
+for usage, examples, and the API reference.
 
 Build and open the Rust API documentation locally:
 
