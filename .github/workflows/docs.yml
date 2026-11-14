@@ -15,6 +15,16 @@ jobs:
       pages: read
     steps:
       - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.3
+      - name: Build Rust documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked -p dumpany --no-deps
+      - name: Stage Rust documentation
+        run: |
+          mkdir -p _site/rust
+          cp -r target/doc/. _site/rust/
       - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.13'
