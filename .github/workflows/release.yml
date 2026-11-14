@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags: ['py/*', 'rs/*', '*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-24.04
+    outputs:
+      package: ${{ steps.tag.outputs.package }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Check package version
+        id: tag
+        uses: ./.github/actions/check-package-version
+        with:
+          tag: ${{ github.ref_name }}
+
+  rust:
+    name: Release Rust package
+    needs: validate
+    if: needs.validate.outputs.package != 'py'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2.9.3
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run Clippy
+        run: cargo clippy --locked -p dumpany --all-targets --all-features -- -D warnings
+      - name: Run tests and doctests
+        run: cargo test --locked -p dumpany --all-features
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked -p dumpany --no-deps
+      - name: Build and verify package
+        run: cargo package --locked -p dumpany
+      - name: Upload Rust package
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: dumpany-crate
+          path: target/package/*.crate
+          if-no-files-found: error
+
+  python:
+    name: Check and build Python packages
+    needs: validate
+    if: needs.validate.outputs.package != 'rs'
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+  publish:
+    name: Create GitHub release
+    needs: [validate, rust, python]
+    if: ${{ always() && !failure() && !cancelled() && needs.validate.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Download built packages
+        uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: dumpany-*
+          path: dist
+          merge-multiple: true
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" dist/* --verify-tag --title "$RELEASE_TAG" --generate-notes --latest=false

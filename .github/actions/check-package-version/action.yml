@@ -1,0 +1,26 @@
+name: Check package version
+description: Validate a release tag against the selected package manifests.
+
+inputs:
+  tag:
+    description: Release tag, such as 0.1.0, py/0.1.0, or rs/0.1.0.
+    required: true
+
+outputs:
+  package:
+    description: Packages selected by the tag (py, rs, or both).
+    value: ${{ steps.check.outputs.package }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7.1.0
+      with:
+        python-version: '3.12'
+    - name: Check package version
+      id: check
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ inputs.tag }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: python "$ACTION_PATH/check.py"
