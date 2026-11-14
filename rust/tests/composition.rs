@@ -59,10 +59,10 @@ struct DumpStep {
 }
 
 impl Dump for DumpStep {
-    fn dump<W: std::io::Write>(&self, _: &mut Dumper<W>) -> Result<()> {
+    fn dump<W: Write>(&self, _: &mut Dumper<W>) -> Result<()> {
         self.calls.borrow_mut().push(self.name);
         if self.fail {
-            Err(std::io::Error::other(self.name))
+            Err(Error::other(self.name))
         } else {
             Ok(())
         }
@@ -164,30 +164,13 @@ fn tuple_list_can_be_dumped_repeatedly() -> Result<()> {
     Ok(())
 }
 
-struct Step {
-    name: &'static str,
-    calls: Rc<RefCell<Vec<&'static str>>>,
-    fail: bool,
-}
-
-impl Dump for Step {
-    fn dump<W: Write>(&self, _: &mut Dumper<W>) -> Result<()> {
-        self.calls.borrow_mut().push(self.name);
-        if self.fail {
-            Err(Error::other(self.name))
-        } else {
-            Ok(())
-        }
-    }
-}
-
 #[test]
 fn errors_in_head_or_tail_stop_remaining_elements() {
     for failing_index in [0, 1] {
         let writer = memory_writer();
         let mut dumper = Dumper::new(writer, DumperConfig::default()).unwrap();
         let calls = Rc::new(RefCell::new(Vec::new()));
-        let step = |name, index| Step {
+        let step = |name, index| DumpStep {
             name,
             calls: calls.clone(),
             fail: index == failing_index,
