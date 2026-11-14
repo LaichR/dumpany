@@ -1,7 +1,9 @@
 # dumpany — Python extension
 
-Python bindings for the dumpany text-generation library, implemented in
-Rust with PyO3.
+Dumpany is a text-generation library for structured output. It offers an alternative to Jinja templates when generating text benefits from the flexibility of Python code. Its declarative composition lets you describe the output in a template-like style while using ordinary Python tools to debug the generation logic.
+Features such as out-of-order content make it especially well suited to code generation.
+
+This directory contains the Python bindings, implemented in Rust with PyO3.
 
 ## Package structure
 
