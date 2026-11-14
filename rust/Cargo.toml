@@ -3,6 +3,7 @@ name = "dumpany"
 authors = ["LaichR"]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.89"
 description = "Generate structured text with line wrapping, indentation, alignment, and custom separators"
 license = "MIT"
 repository = "https://github.com/LaichR/dumpany"
