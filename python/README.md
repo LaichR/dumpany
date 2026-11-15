@@ -1,4 +1,4 @@
-# dumpany — Python extension
+# dumpany — Python
 
 Dumpany is a text-generation library for structured output. It offers an alternative to Jinja templates when generating text benefits from the flexibility of Python code. Its declarative composition lets you describe the output in a template-like style while using ordinary Python tools to debug the generation logic.
 Features such as out-of-order content make it especially well suited to code generation.
