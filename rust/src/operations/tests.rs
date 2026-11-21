@@ -1,10 +1,49 @@
 use super::*;
 
 #[test]
+fn oversized_no_break_leaves_recording_unchanged() {
+    let mut buffer = BytesMut::from(&b"existing"[..]);
+    let error = NoBreak("a".repeat(65536))
+        .to_bytes(&mut buffer)
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(buffer.as_ref(), b"existing");
+}
+
+#[test]
+fn no_break_records_character_length_separately_from_byte_length() -> Result<()> {
+    let mut buffer = BytesMut::new();
+    NoBreak(String::from("é 界")).to_bytes(&mut buffer)?;
+    assert_eq!(buffer[0], NO_BREAK);
+    assert_eq!(u16::from_le_bytes(buffer[1..3].try_into().unwrap()), 3);
+    assert_eq!(u64::from_le_bytes(buffer[3..11].try_into().unwrap()), 6);
+    let mut input = buffer.as_ref();
+    match Operation::from_bytes(&mut input)? {
+        Operation::NoBreak { text, length } => {
+            assert_eq!(text, "é 界");
+            assert_eq!(length, 3);
+        }
+        _ => panic!("expected NoBreak"),
+    }
+    assert!(input.is_empty());
+    for end in 0..buffer.len() {
+        let original = &buffer[..end];
+        let mut input = original;
+        assert_eq!(
+            Operation::from_bytes(&mut input).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+        assert_eq!(input, original);
+    }
+    Ok(())
+}
+
+#[test]
 fn round_trip_operations() -> Result<()> {
     let mut buffer = BytesMut::new();
     Text("hello λ\n  world").to_bytes(&mut buffer)?;
     Text(42).to_bytes(&mut buffer)?;
+    NoBreak("a λ literal").to_bytes(&mut buffer)?;
     NewLine(None).to_bytes(&mut buffer)?;
     NewLine(Some(Indentation::Decrement(2))).to_bytes(&mut buffer)?;
     Indentation::Increment(3).to_bytes(&mut buffer)?;
@@ -17,6 +56,10 @@ fn round_trip_operations() -> Result<()> {
     assert_eq!(decoded.0, "hello λ\n  world");
     assert_eq!(decoded.0.as_ptr(), buffer[9..].as_ptr());
     assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text("42"));
+    assert_eq!(
+        NoBreak::<&str>::from_bytes(&mut input)?,
+        NoBreak("a λ literal")
+    );
     assert_eq!(NewLine::from_bytes(&mut input)?, NewLine(None));
     assert_eq!(
         NewLine::from_bytes(&mut input)?,

@@ -61,13 +61,13 @@ pub trait Dump {
 /// Configure line endings, indentation, and wrapping for a [`Dumper`].
 ///
 /// Defaults to LF line endings, four spaces per indentation level, and a line
-/// width of 120 bytes.
+/// width of 120 Unicode characters.
 pub struct DumperConfig {
     /// Nonempty sequence used to separate lines.
     pub new_line: String,
     /// Number of spaces per indentation level.
     pub indent_width: usize,
-    /// Preferred line width in UTF-8 bytes, including indentation.
+    /// Preferred line width in Unicode characters, including indentation.
     pub line_width: usize,
 }
 
@@ -190,6 +190,36 @@ pub struct Text<T>(
     /// Value to format as text.
     pub T,
 );
+
+/// Append string text without inserting line breaks within it.
+///
+/// Accepts borrowed or owned strings, not arbitrary displayable values.
+///
+/// ```compile_fail
+/// use dumpany::core::{Dump, Dumper, DumperConfig, NoBreak};
+/// let mut out = Dumper::new(Vec::new(), DumperConfig::default()).unwrap();
+/// NoBreak(42).dump(&mut out).unwrap();
+/// ```
+#[derive(Debug, PartialEq, Eq)]
+pub struct NoBreak<T>(
+    /// Indivisible string text; existing line endings are preserved.
+    pub T,
+);
+
+impl<T: AsRef<str>> Dump for NoBreak<T> {
+    fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
+        dumper.no_break(&self.0)
+    }
+}
+
+pub(crate) fn no_break_length(text: &str) -> Result<u16> {
+    u16::try_from(text.chars().count()).map_err(|_| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            "no-break text exceeds 65535 Unicode characters",
+        )
+    })
+}
 
 /// Insert a line break with an optional indentation change for following lines.
 ///
@@ -441,6 +471,32 @@ impl<T: Write> Dumper<T> {
             self.dump_text(&text.to_string())?;
         }
         Ok(())
+    }
+
+    /// Append text without inserting line breaks within it.
+    ///
+    /// Wraps before the text when it does not fit on a nonempty line. Text that
+    /// exceeds a fresh line's width is emitted intact. Empty text does nothing.
+    /// Existing line endings are preserved verbatim, not escaped or interpreted.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` — String text appended as one unit, accepting `&str` or `String`.
+    ///
+    /// # Returns
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] without emitting or recording text if
+    /// it exceeds 65,535 Unicode characters.
+    /// Returns `Ok(())`, or an error if writing fails, or the
+    /// dumper is finalized or has failed.
+    pub fn no_break(&mut self, text: impl AsRef<str>) -> Result<()> {
+        self.ensure_active()?;
+        if let Some(recorder) = &mut self.recorder {
+            recorder.no_break(text)
+        } else {
+            let text = text.as_ref();
+            self.dump_no_break(text, no_break_length(text)?)
+        }
     }
 
     /// Dump a sequence with a delimiter between adjacent items.
@@ -698,7 +754,7 @@ impl<T: Write> Dumper<T> {
             // we assume that the prefix is allways
 
             self.current_line.push_str(prefix);
-            if self.current_line.len() > self.config.line_width {
+            if self.current_line.chars().count() > self.config.line_width {
                 // we assume that the prefix is short and fits onto the
                 // line within the line width!
                 return Err(Error::new(
@@ -744,6 +800,7 @@ impl<T: Write> Dumper<T> {
         while !bytes.is_empty() {
             match Operation::from_bytes(bytes)? {
                 Operation::Text(text) => self.dump_text(text.0)?,
+                Operation::NoBreak { text, length } => self.dump_no_break(text, length)?,
                 Operation::NewLine(line) => self.new_line(line.0)?,
                 Operation::Indentation(Increment(amount)) => self.indent += amount as usize,
                 Operation::Indentation(Decrement(amount)) => {
@@ -766,6 +823,15 @@ impl<T: Write> Dumper<T> {
         } else {
             Ok(())
         }
+    }
+
+    fn dump_no_break(&mut self, text: &str, length: u16) -> Result<()> {
+        if text.is_empty() {
+            return Ok(());
+        }
+        self.ensure_line_space(usize::from(length))?;
+        self.current_line.push_str(text);
+        Ok(())
     }
 
     fn dump_text(&mut self, text: &str) -> Result<()> {
@@ -799,7 +865,7 @@ impl<T: Write> Dumper<T> {
         if self.current_line.is_empty() {
             self.current_line.push_str(&self.get_indentation_string());
         }
-        self.left_margin.push(self.current_line.len());
+        self.left_margin.push(self.current_line.chars().count());
     }
 
     fn release_left_margin(&mut self) {
@@ -809,8 +875,16 @@ impl<T: Write> Dumper<T> {
     fn get_indentation_string(&self) -> String {
         " ".repeat(self.indent * self.config.indent_width)
     }
-    fn prepare_current_line(&mut self) -> Result<()> {
-        if self.current_line.len() >= self.config.line_width {
+    // Reserve space when possible, allowing overflow on a fresh line.
+    fn ensure_line_space(&mut self, required_width: usize) -> Result<()> {
+        if !self.current_line.trim().is_empty()
+            && self
+                .current_line
+                .chars()
+                .count()
+                .saturating_add(required_width)
+                > self.config.line_width
+        {
             self.flush_line()?;
         }
         if self.current_line.is_empty() {
@@ -828,7 +902,8 @@ impl<T: Write> Dumper<T> {
     /// since it did not fit anymore
     fn add_line(&mut self, line: &str, delimiter: char) -> bool {
         self.current_line.push_str(line);
-        if self.current_line.len() < self.config.line_width && !delimiter.is_whitespace() {
+        if self.current_line.chars().count() < self.config.line_width && !delimiter.is_whitespace()
+        {
             self.current_line.push(delimiter);
             return true;
         }
@@ -853,15 +928,17 @@ impl<T: Write> Dumper<T> {
         let f = |x: char| matches!(x, ' ' | '\t' | ',' | ';');
         let mut end = line.len();
         let mut head = line;
-        self.prepare_current_line()?;
-        while head.len() + self.current_line.len() > self.config.line_width {
+        self.ensure_line_space(1)?;
+        while head.chars().count() + self.current_line.chars().count() > self.config.line_width {
             if let Some(mut pos) = head[..end].rfind(&f) {
-                if pos + self.current_line.len() <= self.config.line_width {
+                if head[..pos].chars().count() + self.current_line.chars().count()
+                    <= self.config.line_width
+                {
                     if self.add_line(&head[..pos], head[pos..].chars().next().unwrap()) {
                         pos += 1;
                     }
                     self.flush_line()?;
-                    self.prepare_current_line()?;
+                    self.ensure_line_space(1)?;
                     head = &head[pos..];
                     end = head.len()
                 } else {
