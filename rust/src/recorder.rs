@@ -4,7 +4,7 @@ use std::fmt::Display;
 use std::io::Result;
 
 use crate::context::Context;
-use crate::core::{Indentation, NewLine, Text};
+use crate::core::{Indentation, NewLine, NoBreak, Text};
 use crate::operations::{CloseContext, ToBytes};
 
 #[derive(Default)]
@@ -14,6 +14,10 @@ pub(crate) struct Recorder {
 }
 
 impl Recorder {
+    pub fn no_break<T: AsRef<str>>(&mut self, text: T) -> Result<()> {
+        NoBreak(text).to_bytes(&mut self.encoded_content)
+    }
+
     pub fn text<T: Display>(&mut self, text: T) -> Result<()> {
         Text(text).to_bytes(&mut self.encoded_content)
     }

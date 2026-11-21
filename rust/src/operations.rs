@@ -6,7 +6,7 @@ use std::fmt::{self, Display, Write as FmtWrite};
 use std::io::{Error, ErrorKind, Result, Write};
 
 use crate::context::Context;
-use crate::core::{Dump, Dumper, Indentation, NewLine, Text};
+use crate::core::{Dump, Dumper, Indentation, NewLine, NoBreak, Text};
 
 /// Close the current context without changing indentation as a [`Dump`] operation.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
@@ -61,6 +61,8 @@ pub(crate) trait FromBytes<'a>: Sized {
 /// Text and context descriptions borrow their strings from the input.
 #[derive(Debug)]
 pub(crate) enum Operation<'data> {
+    /// Append indivisible text.
+    NoBreak { text: &'data str, length: u16 },
     /// Append the supplied text.
     Text(Text<&'data str>),
     /// Insert a line break and optionally change indentation.
@@ -78,6 +80,7 @@ const NEWLINE: u8 = 1;
 const INDENTATION: u8 = 2;
 pub(crate) const OPEN_CONTEXT: u8 = 3;
 const CLOSE_CONTEXT: u8 = 4;
+const NO_BREAK: u8 = 5;
 
 fn invalid(message: &str) -> Error {
     Error::new(ErrorKind::InvalidData, message)
@@ -179,6 +182,17 @@ impl ToBytes for NewLine {
     }
 }
 
+impl<T: AsRef<str>> ToBytes for NoBreak<T> {
+    fn to_bytes(&self, out: &mut BytesMut) -> Result<()> {
+        let text = self.0.as_ref();
+        let length = crate::core::no_break_length(text)?;
+        out.put_u8(NO_BREAK);
+        out.put_u16_le(length);
+        put_text(out, text);
+        Ok(())
+    }
+}
+
 impl ToBytes for Indentation {
     fn to_bytes(&self, out: &mut BytesMut) -> Result<()> {
         out.put_u8(INDENTATION);
@@ -200,6 +214,13 @@ impl<'a> FromBytes<'a> for Operation<'a> {
         let mut remaining = *input;
         let operation = match byte(&mut remaining)? {
             TEXT => Self::Text(Text(text(&mut remaining)?)),
+            NO_BREAK => {
+                let length = u16::from_le_bytes(take(&mut remaining, 2)?.try_into().unwrap());
+                Self::NoBreak {
+                    text: text(&mut remaining)?,
+                    length,
+                }
+            }
             NEWLINE => Self::NewLine(NewLine(match byte(&mut remaining)? {
                 0 => None,
                 1 => Some(indent(&mut remaining)?),
@@ -236,6 +257,18 @@ macro_rules! decode_primitive {
 }
 
 decode_primitive!(Text<&'a str>, Text);
+impl<'a> FromBytes<'a> for NoBreak<&'a str> {
+    fn from_bytes(input: &mut &'a [u8]) -> Result<Self> {
+        let mut remaining = *input;
+        match Operation::from_bytes(&mut remaining)? {
+            Operation::NoBreak { text, .. } => {
+                *input = remaining;
+                Ok(NoBreak(text))
+            }
+            _ => Err(invalid("unexpected operation type")),
+        }
+    }
+}
 decode_primitive!(NewLine, NewLine);
 decode_primitive!(Indentation, Indentation);
 decode_primitive!(CloseContext, CloseContext);

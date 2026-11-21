@@ -1,11 +1,13 @@
 mod context;
 mod join;
 mod new_line;
+mod no_break;
 mod prologue_epilogue;
 
 pub(crate) use context::PyContext;
 pub(crate) use join::Join;
 pub(crate) use new_line::NewLine;
+pub(crate) use no_break::NoBreak;
 pub(crate) use prologue_epilogue::{Epilogue, Prologue};
 
 fn indentation(
