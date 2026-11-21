@@ -8,6 +8,7 @@
 
 - Initial feature set:
   - Text output to Python streams with configurable line width and line endings.
+  - Indivisible text through `NoBreak` and `Dumper.no_break()`, with Unicode character-based wrapping and a 65,535-character limit per no-break value.
   - Recursive composition of iterables, Python objects, and dump operations.
   - Line breaks and explicit indentation changes.
   - Nested, aligned contexts with prefixes, prologues, and epilogues.

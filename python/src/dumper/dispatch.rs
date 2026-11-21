@@ -1,5 +1,5 @@
 use super::PyDumper;
-use crate::operations::{Epilogue, Join, NewLine, Prologue, PyContext};
+use crate::operations::{Epilogue, Join, NewLine, NoBreak, Prologue, PyContext};
 use dumpany_rs::core::{Indentation, Target};
 use pyo3::exceptions::{PyRecursionError, PyValueError};
 use pyo3::prelude::*;
@@ -18,6 +18,13 @@ pub(super) fn dispatch(
     }
     if let Ok(operation) = value.cast::<NewLine>() {
         return dump_newline(dumper, operation.borrow().indentation);
+    }
+    if let Ok(operation) = value.cast::<NoBreak>() {
+        return dumper
+            .try_borrow_mut()?
+            .inner
+            .no_break(&operation.borrow().text)
+            .map_err(PyErr::from);
     }
     if let Ok(operation) = value.cast::<Join>() {
         return with_active(value, active, |active| dump_join(dumper, operation, active));

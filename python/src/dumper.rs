@@ -23,7 +23,7 @@ impl PyDumper {
     ///
     /// :param stream: A Python text stream with write(str) and flush() methods.
     ///     The dumper never closes it.
-    /// :param line_width: Preferred line width for wrapping text, in columns.
+    /// :param line_width: Preferred line width in Unicode characters.
     ///     Defaults to 120. Normal indentation uses four spaces per level.
     /// :param new_line: Line-ending sequence, such as ``"\n"`` or ``"\r\n"``.
     ///     Defaults to ``"\n"``. Must not be empty.
@@ -60,6 +60,18 @@ impl PyDumper {
     ///     or an object to convert with str().
     fn dump(slf: &Bound<'_, Self>, value: &Bound<'_, PyAny>) -> PyResult<()> {
         dispatch::dispatch(slf, value, &mut HashSet::new())
+    }
+
+    /// Append text without inserting line breaks within it.
+    ///
+    /// Wraps before the text if needed; oversized text overflows intact.
+    /// Existing line endings are preserved, not escaped.
+    ///
+    /// :param text: Text to emit as one unit. Empty text emits nothing.
+    /// :raises OSError: If text exceeds 65,535 Unicode characters, before output.
+    /// :returns: None on success; writer errors propagate as exceptions.
+    fn no_break(&mut self, text: &str) -> PyResult<()> {
+        self.inner.no_break(text).map_err(PyErr::from)
     }
 
     /// Finish the dump, emit pending text, and flush the Python stream.

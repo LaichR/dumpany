@@ -17,6 +17,9 @@ mod dumpany {
     use crate::operations::NewLine;
 
     #[pymodule_export]
+    use crate::operations::NoBreak;
+
+    #[pymodule_export]
     use crate::operations::Join;
 
     #[pymodule_export]
