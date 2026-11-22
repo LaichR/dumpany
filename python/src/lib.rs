@@ -20,6 +20,9 @@ mod dumpany {
     use crate::operations::NoBreak;
 
     #[pymodule_export]
+    use crate::operations::NoBreakRegion;
+
+    #[pymodule_export]
     use crate::operations::Join;
 
     #[pymodule_export]

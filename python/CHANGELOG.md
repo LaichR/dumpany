@@ -13,6 +13,7 @@
   - Line breaks and explicit indentation changes.
   - Nested, aligned contexts with prefixes, prologues, and epilogues.
   - Optional inline context closing with `new_line=False`; indentation changes always end the line.
+  - `NoBreakRegion` for composed output and iterators, preserving explicit line breaks.
   - Joining content with delimiters.
   - Explicit output finalization without closing the supplied stream.
   - Python user documentation and type stubs.
