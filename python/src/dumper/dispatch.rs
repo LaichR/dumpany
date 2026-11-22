@@ -1,5 +1,5 @@
 use super::PyDumper;
-use crate::operations::{Epilogue, Join, NewLine, NoBreak, Prologue, PyContext};
+use crate::operations::{Epilogue, Join, NewLine, NoBreak, NoBreakRegion, Prologue, PyContext};
 use dumpany_rs::core::{Indentation, Target};
 use pyo3::exceptions::{PyRecursionError, PyValueError};
 use pyo3::prelude::*;
@@ -28,6 +28,28 @@ pub(super) fn dispatch(
     }
     if let Ok(operation) = value.cast::<Join>() {
         return with_active(value, active, |active| dump_join(dumper, operation, active));
+    }
+    if let Ok(operation) = value.cast::<NoBreakRegion>() {
+        let content = operation
+            .borrow()
+            .content
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("NoBreakRegion has been cleared"))?
+            .clone_ref(value.py());
+        return with_active(value, active, |active| {
+            dumper.try_borrow_mut()?.inner.begin_no_break_region()?;
+            match dispatch(dumper, content.bind(value.py()), active) {
+                Ok(()) => dumper
+                    .try_borrow_mut()?
+                    .inner
+                    .end_no_break_region()
+                    .map_err(PyErr::from),
+                Err(error) => {
+                    dumper.try_borrow_mut()?.inner.abort_no_break_region();
+                    Err(error)
+                }
+            }
+        });
     }
     if let Ok(operation) = value.cast::<PyContext>() {
         return with_active(value, active, |active| {

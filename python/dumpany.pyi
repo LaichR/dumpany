@@ -10,6 +10,7 @@ __all__ = [
     "Join",
     "NewLine",
     "NoBreak",
+    "NoBreakRegion",
     "Prologue",
 ]
 
@@ -79,7 +80,7 @@ class Dumper:
         r"""
         Dump any Python object as text or as a sequence of dump operations.
         
-        NewLine, Join, Context, Prologue, and Epilogue control the output as
+        NewLine, NoBreak, NoBreakRegion, Join, Context, Prologue, and Epilogue control the output as
         described in their class documentation. Ellipsis emits a newline.
         
         Strings and bytes-like objects are converted to text without iterating
@@ -190,6 +191,26 @@ class NoBreak:
         Create an indivisible text operation.
         
         :param text: Text to emit intact when the operation is dumped.
+        """
+
+@typing.final
+class NoBreakRegion:
+    r"""
+    Dump composed content without automatic line breaks inside it.
+    
+    The first explicit line is measured before deciding whether to wrap before
+    the region. Oversized lines overflow intact. Regions nest and honor explicit
+    newlines, including context closing breaks. Contexts must close inside the
+    region; target switching and finalization inside a region are not allowed.
+    An error while producing a region permanently fails the dumper. Pending
+    output is not replayed; bytes already written cannot be undone.
+    """
+    def __new__(cls, content: typing.Any) -> NoBreakRegion:
+        r"""
+        Create a no-break region.
+        
+        :param content: Any value accepted by Dumper.dump(), including iterators.
+            Consumed only when dumped; iterators and callbacks run once.
         """
 
 @typing.final

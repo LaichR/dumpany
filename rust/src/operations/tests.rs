@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn no_break_region_preserves_metadata_index_and_rejects_truncation() -> Result<()> {
+    let mut buffer = BytesMut::new();
+    put_no_break_region(&mut buffer, 42);
+    let mut input = buffer.as_ref();
+    match Operation::from_bytes(&mut input)? {
+        Operation::NoBreakRegion(decoded) => assert_eq!(decoded, 42),
+        _ => panic!("expected NoBreakRegion"),
+    }
+    assert!(input.is_empty());
+    for end in 0..buffer.len() {
+        let original = &buffer[..end];
+        let mut input = original;
+        assert_eq!(
+            Operation::from_bytes(&mut input).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+        assert_eq!(input, original);
+    }
+    Ok(())
+}
+
+#[test]
 fn oversized_no_break_leaves_recording_unchanged() {
     let mut buffer = BytesMut::from(&b"existing"[..]);
     let error = NoBreak("a".repeat(65536))

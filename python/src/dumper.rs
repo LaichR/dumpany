@@ -45,7 +45,7 @@ impl PyDumper {
 
     /// Dump any Python object as text or as a sequence of dump operations.
     ///
-    /// NewLine, Join, Context, Prologue, and Epilogue control the output as
+    /// NewLine, NoBreak, NoBreakRegion, Join, Context, Prologue, and Epilogue control the output as
     /// described in their class documentation. Ellipsis emits a newline.
     ///
     /// Strings and bytes-like objects are converted to text without iterating

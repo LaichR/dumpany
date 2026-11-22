@@ -2,6 +2,40 @@ use super::*;
 use crate::operations::{FromBytes, Operation};
 
 #[test]
+fn attached_region_keeps_its_own_content_and_contributes_to_parent_width() -> Result<()> {
+    let mut recorder = Recorder::default();
+    recorder.text("before ")?;
+    let mut region = Recorder::default();
+    region.text("a ")?;
+    region.text("+ b")?;
+    recorder.no_break_region(region);
+    recorder.text(" after")?;
+    assert_eq!(recorder.regions.len(), 1);
+    assert_eq!(
+        recorder.regions[0].first_line_width(&HashMap::new(), &HashMap::new()),
+        5
+    );
+
+    let mut input = recorder.encoded_content();
+    assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text("before "));
+    assert!(matches!(
+        Operation::from_bytes(&mut input)?,
+        Operation::NoBreakRegion(0)
+    ));
+    let mut content = recorder.regions[0].encoded_content();
+    assert_eq!(Text::<&str>::from_bytes(&mut content)?, Text("a "));
+    assert_eq!(Text::<&str>::from_bytes(&mut content)?, Text("+ b"));
+    assert!(content.is_empty());
+    assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text(" after"));
+    assert!(input.is_empty());
+    assert_eq!(
+        recorder.first_line_width(&HashMap::new(), &HashMap::new()),
+        18
+    );
+    Ok(())
+}
+
+#[test]
 fn recorder_encodes_runtime_metadata_before_sources_are_dropped() -> Result<()> {
     let mut recorder = {
         let prefix = String::from("- ");

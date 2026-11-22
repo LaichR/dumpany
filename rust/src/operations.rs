@@ -61,6 +61,8 @@ pub(crate) trait FromBytes<'a>: Sized {
 /// Text and context descriptions borrow their strings from the input.
 #[derive(Debug)]
 pub(crate) enum Operation<'data> {
+    /// Render encoded operations without automatic line breaks.
+    NoBreakRegion(usize),
     /// Append indivisible text.
     NoBreak { text: &'data str, length: u16 },
     /// Append the supplied text.
@@ -81,6 +83,12 @@ const INDENTATION: u8 = 2;
 pub(crate) const OPEN_CONTEXT: u8 = 3;
 const CLOSE_CONTEXT: u8 = 4;
 const NO_BREAK: u8 = 5;
+const NO_BREAK_REGION: u8 = 6;
+
+pub(crate) fn put_no_break_region(out: &mut BytesMut, index: usize) {
+    out.put_u8(NO_BREAK_REGION);
+    out.put_u64_le(index as u64);
+}
 
 fn invalid(message: &str) -> Error {
     Error::new(ErrorKind::InvalidData, message)
@@ -214,6 +222,12 @@ impl<'a> FromBytes<'a> for Operation<'a> {
     fn from_bytes(input: &mut &'a [u8]) -> Result<Self> {
         let mut remaining = *input;
         let operation = match byte(&mut remaining)? {
+            NO_BREAK_REGION => {
+                let index = u64::from_le_bytes(take(&mut remaining, 8)?.try_into().unwrap());
+                Self::NoBreakRegion(
+                    usize::try_from(index).map_err(|_| invalid("region index exceeds usize"))?,
+                )
+            }
             TEXT => Self::Text(Text(text(&mut remaining)?)),
             NO_BREAK => {
                 let length = u16::from_le_bytes(take(&mut remaining, 2)?.try_into().unwrap());
