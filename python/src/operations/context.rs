@@ -16,7 +16,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 /// be added only while the outermost context remains open.
 ///
 /// The context's content is dumped recursively.
-/// Closing the context ends its final line and restores the enclosing alignment.
+/// Closing restores the enclosing alignment and ends the line unless new_line=False.
 /// Normal indentation is left unchanged unless increment or decrement is supplied;
 /// the requested change takes effect after the context's final line.
 #[pyclass(name = "Context", module = "dumpany")]
@@ -25,6 +25,7 @@ pub struct PyContext {
     pub(crate) name: Option<String>,
     pub(crate) content: Option<Py<PyAny>>,
     pub(crate) indentation: Option<Indentation>,
+    pub(crate) new_line: bool,
 }
 
 #[gen_stub_pymethods]
@@ -43,24 +44,28 @@ impl PyContext {
     ///     Defaults to None (no increment).
     /// :param decrement: Number of normal indentation levels to remove on closing,
     ///     stopping at zero. Defaults to None (no decrement).
+    /// :param new_line: End the line on closing. Defaults to True. Supplying
+    ///     increment or decrement always ends the line, including a zero count.
     ///
     /// Counts must be integers from 0 to 255. Supplying both increment and
     /// decrement raises ValueError, even when either count is zero. Indentation
     /// changes made inside the context are not automatically undone on closing.
     #[new]
-    #[pyo3(signature = (content, *, prefix=None, name=None, increment=None, decrement=None))]
+    #[pyo3(signature = (content, *, prefix=None, name=None, increment=None, decrement=None, new_line=true))]
     fn new(
         content: Py<PyAny>,
         prefix: Option<String>,
         name: Option<String>,
         increment: Option<u8>,
         decrement: Option<u8>,
+        new_line: bool,
     ) -> PyResult<Self> {
         Ok(Self {
             prefix,
             name,
             content: Some(content),
             indentation: super::indentation(increment, decrement)?,
+            new_line,
         })
     }
 }

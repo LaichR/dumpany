@@ -18,7 +18,7 @@ def test_nested_contexts_and_joins(render):
         Context("hello", prefix="* "),
         Context(Join(", ", [1, 2, 3]), prefix="* "),
     ], prefix="- ")
-    assert render(value) == "- * hello\n* 1, 2, 3\n\n"
+    assert render(value) == "- * hello\n  * 1, 2, 3\n\n"
 
 
 def test_runtime_names_and_reuse_after_root_flush(render):
@@ -180,3 +180,20 @@ def test_close_indentation_applies_during_content_error_cleanup():
     dumper.dump("after")
     dumper.dump_all()
     assert stream.getvalue() == "before\n    after\n"
+def test_inline_context_preserves_parent_alignment():
+    stream = io.StringIO()
+    dumper = Dumper(stream)
+    dumper.dump(Context([
+        Context(["first", ..., "second"], prefix="call(", new_line=False),
+        ");", ..., "tail",
+    ], prefix="- "))
+    dumper.dump_all()
+    assert stream.getvalue() == "- call(first\n       second);\n  tail\n"
+
+
+def test_inline_context_indentation_change_forces_newline():
+    stream = io.StringIO()
+    dumper = Dumper(stream)
+    dumper.dump([Context("first", new_line=False, increment=0), "second"])
+    dumper.dump_all()
+    assert stream.getvalue() == "first\nsecond\n"
