@@ -161,7 +161,7 @@ fn dump_context(
 ) -> PyResult<()> {
     let py = value.py();
     // Release all borrows before dispatching content that can call back into Python.
-    let (content, indentation) = {
+    let (content, indentation, new_line) = {
         let operation = value.borrow();
         let content = operation
             .content
@@ -172,13 +172,18 @@ fn dump_context(
             .try_borrow_mut()?
             .inner
             .open_context(operation.prefix.as_deref(), operation.name.as_deref())?;
-        (content, operation.indentation)
+        (content, operation.indentation, operation.new_line)
     };
     let result = dispatch(dumper, content.bind(py), active);
     let closed = dumper
         .try_borrow_mut()
         .map_err(PyErr::from)
-        .and_then(|mut dumper| dumper.inner.close_context(indentation).map_err(PyErr::from));
+        .and_then(|mut dumper| {
+            dumper
+                .inner
+                .close_context(indentation, new_line)
+                .map_err(PyErr::from)
+        });
     // Match Rust Context::with: the content error takes precedence over closing.
     result.and(closed)
 }

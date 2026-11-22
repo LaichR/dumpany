@@ -14,14 +14,14 @@ fn recorder_encodes_runtime_metadata_before_sources_are_dropped() -> Result<()> 
         recorder.open_context(Some(&prefix), Some(&name))?;
     }
     recorder.text("hello")?;
-    recorder.close_context()?;
-    recorder.close_context()?;
+    recorder.close_context(true)?;
+    recorder.close_context(true)?;
 
     let mut expected = Recorder::new(Some("- "), Some("runtime"))?;
     expected.open_context(Some("* "), Some("child"))?;
     expected.text("hello")?;
-    expected.close_context()?;
-    expected.close_context()?;
+    expected.close_context(true)?;
+    expected.close_context(true)?;
     assert_eq!(recorder.encoded_content(), expected.encoded_content());
     Ok(())
 }
@@ -36,7 +36,7 @@ fn records_root_and_basic_operations() -> Result<()> {
     recorder.new_line(Some(Indentation::Decrement(1)))?;
     recorder.dec_indent(1)?;
     recorder.new_line(None)?;
-    recorder.close_context()?;
+    recorder.close_context(true)?;
     assert_eq!(recorder.context_depth(), 0);
 
     let buffer = recorder.into_encoded_content();
@@ -74,10 +74,10 @@ fn records_nested_contexts_inline() -> Result<()> {
     recorder.open_context(Some("* "), Some("child"))?;
     assert_eq!(recorder.context_depth(), 2);
     recorder.text("inside")?;
-    recorder.close_context()?;
+    recorder.close_context(true)?;
     assert_eq!(recorder.context_depth(), 1);
     recorder.text("after")?;
-    recorder.close_context()?;
+    recorder.close_context(true)?;
     assert_eq!(recorder.context_depth(), 0);
 
     let mut input = recorder.encoded_content();

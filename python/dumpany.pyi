@@ -29,11 +29,11 @@ class Context:
     be added only while the outermost context remains open.
     
     The context's content is dumped recursively.
-    Closing the context ends its final line and restores the enclosing alignment.
+    Closing restores the enclosing alignment and ends the line unless new_line=False.
     Normal indentation is left unchanged unless increment or decrement is supplied;
     the requested change takes effect after the context's final line.
     """
-    def __new__(cls, content: typing.Any, *, prefix: typing.Optional[builtins.str] = None, name: typing.Optional[builtins.str] = None, increment: typing.Optional[builtins.int] = None, decrement: typing.Optional[builtins.int] = None) -> Context:
+    def __new__(cls, content: typing.Any, *, prefix: typing.Optional[builtins.str] = None, name: typing.Optional[builtins.str] = None, increment: typing.Optional[builtins.int] = None, decrement: typing.Optional[builtins.int] = None, new_line: builtins.bool = True) -> Context:
         r"""
         Create a new context.
         
@@ -48,6 +48,8 @@ class Context:
             Defaults to None (no increment).
         :param decrement: Number of normal indentation levels to remove on closing,
             stopping at zero. Defaults to None (no decrement).
+        :param new_line: End the line on closing. Defaults to True. Supplying
+            increment or decrement always ends the line, including a zero count.
         
         Counts must be integers from 0 to 255. Supplying both increment and
         decrement raises ValueError, even when either count is zero. Indentation
