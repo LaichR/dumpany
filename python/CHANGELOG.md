@@ -16,4 +16,5 @@
   - `NoBreakRegion` for composed output and iterators, preserving explicit line breaks.
   - Joining content with delimiters.
   - Explicit output finalization without closing the supplied stream.
+  - Optional finalization without a trailing newline through `dump_all(new_line=False)`.
   - Python user documentation and type stubs.
