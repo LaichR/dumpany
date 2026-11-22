@@ -49,7 +49,7 @@ fn round_trip_operations() -> Result<()> {
     Indentation::Increment(3).to_bytes(&mut buffer)?;
     Context::new(Some("- "), Some("items")).to_bytes(&mut buffer)?;
     Context::new(None, None).to_bytes(&mut buffer)?;
-    CloseContext.to_bytes(&mut buffer)?;
+    CloseContext(true).to_bytes(&mut buffer)?;
 
     let mut input = buffer.as_ref();
     let decoded = Text::<&str>::from_bytes(&mut input)?;
@@ -73,7 +73,7 @@ fn round_trip_operations() -> Result<()> {
     assert_eq!((context.prefix, context.name), (Some("- "), Some("items")));
     let context = Context::from_bytes(&mut input)?;
     assert_eq!((context.prefix, context.name), (None, None));
-    assert_eq!(CloseContext::from_bytes(&mut input)?, CloseContext);
+    assert_eq!(CloseContext::from_bytes(&mut input)?, CloseContext(true));
     assert!(input.is_empty());
     Ok(())
 }

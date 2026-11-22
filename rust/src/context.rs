@@ -9,12 +9,15 @@ use bytes::{BufMut, BytesMut};
 ///
 /// Use [`Self::with`] to produce the context's content. Continuation lines align
 /// with the content after the prefix.
+/// Set [`Self::new_line`] to `false` to continue on the same line after closing.
 #[derive(Debug)]
 pub struct Context<'data> {
     /// Text placed before the context's content.
     pub prefix: Option<&'data str>,
     /// Identifier for selecting the context's prologue or epilogue.
     pub name: Option<&'data str>,
+    /// Whether closing ends the current line. Defaults to `true`.
+    pub new_line: bool,
 }
 
 impl<'data> Context<'data> {
@@ -57,7 +60,7 @@ impl<'data> Context<'data> {
     ) -> Result<R> {
         dumper.open_context(self.prefix, self.name)?;
         let result = body(dumper);
-        let closed = dumper.close_context(None);
+        let closed = dumper.close_context(None, self.new_line);
         match result {
             Ok(value) => closed.map(|()| value),
             Err(error) => Err(error),
@@ -76,7 +79,11 @@ impl<'data> Context<'data> {
     ///
     /// Returns a context description without opening it in a dumper.
     pub fn new(prefix: Option<&'data str>, name: Option<&'data str>) -> Self {
-        Self { prefix, name }
+        Self {
+            prefix,
+            name,
+            new_line: true,
+        }
     }
 }
 

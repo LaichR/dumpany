@@ -16,7 +16,7 @@ fn explicit_selection_appends_and_restores_main() -> Result<()> {
     drop(name);
     d.text("before:")?;
     assert_eq!(d.dump_all().unwrap_err().kind(), ErrorKind::InvalidInput);
-    assert!(d.close_context(None).is_err());
+    assert!(d.close_context(None, true).is_err());
     assert!(d.select_target(Target::Epilogue("root")).is_err());
     d.select_main()?;
     d.select_main()?;
@@ -67,7 +67,7 @@ fn target_contexts_resume_across_selections() -> Result<()> {
         ErrorKind::AlreadyExists
     );
     assert_eq!(
-        d.close_context(None).unwrap_err().kind(),
+        d.close_context(None, true).unwrap_err().kind(),
         ErrorKind::InvalidInput
     );
     assert!(d.get_ref().is_empty());
@@ -77,11 +77,11 @@ fn target_contexts_resume_across_selections() -> Result<()> {
     d.select_main()?;
     d.select_target(Target::Prologue("root"))?;
     d.text(" second")?;
-    d.close_context(None)?;
+    d.close_context(None, true)?;
     d.select_main()?;
     d.select_target(Target::Epilogue("root"))?;
     d.text(" continued")?;
-    d.close_context(None)?;
+    d.close_context(None, true)?;
     d.select_main()?;
     assert_eq!(
         d.into_inner().unwrap(),
@@ -106,10 +106,10 @@ fn with_target_preserves_open_contexts_on_success_and_error() -> Result<()> {
         .unwrap_err();
     assert_eq!(error.to_string(), "body failed");
     d.text("body")?;
-    d.with_target(Target::Prologue("root"), |d| d.close_context(None))?;
+    d.with_target(Target::Prologue("root"), |d| d.close_context(None, true))?;
     d.with_target(Target::Epilogue("root"), |d| {
         d.text("after")?;
-        d.close_context(None)
+        d.close_context(None, true)
     })?;
     assert_eq!(d.into_inner().unwrap(), b"before\nbodyafter\n\n");
     Ok(())
@@ -133,7 +133,7 @@ fn runtime_names_and_prefixes_outlive_their_sources() -> Result<()> {
         let prefix = String::from("- ");
         dumper.open_context(Some(&prefix), Some(&name))?;
         dumper.text("body")?;
-        dumper.close_context(None)?;
+        dumper.close_context(None, true)?;
     }
     let name = String::from("runtime");
     assert_eq!(
@@ -143,7 +143,7 @@ fn runtime_names_and_prefixes_outlive_their_sources() -> Result<()> {
     dumper.with_target(Target::Prologue(&name), |d| d.text("before:"))?;
     dumper.with_target(Target::Epilogue(&name), |d| d.text(":after"))?;
     drop(name);
-    dumper.close_context(None)?;
+    dumper.close_context(None, true)?;
     assert_eq!(dumper.get_ref(), b"- before:body:after\n\n");
 
     // Root flushing releases owned names and allows an equal runtime name again.
@@ -204,7 +204,7 @@ fn flush_failure_clears_names_and_section_recorders() -> Result<()> {
             .is_err()
     );
     Context::new(None, Some("root")).with(&mut dumper, |_| Ok(()))?;
-    assert_eq!(dumper.get_ref(), b"too long\n");
+    assert_eq!(dumper.get_ref(), b"too long\n\n");
     Ok(())
 }
 
@@ -270,7 +270,7 @@ fn sections_buffer_newlines_and_allow_nested_contexts() -> Result<()> {
     Context::new(None, Some("root")).with(&mut dumper, |d| {
         d.text("body")?;
         d.with_target(Target::Prologue("root"), |d| {
-            assert!(d.close_context(None).is_err());
+            assert!(d.close_context(None, true).is_err());
             Context::new(None, Some("header")).with(d, |d| d.text("header"))?;
             d.text("before")?;
             d.new_line(None)

@@ -107,7 +107,7 @@ enum DumperState {
 /// out.text("body")?;
 /// out.with_target(Target::Prologue("item"), |out| out.text("before "))?;
 /// out.with_target(Target::Epilogue("item"), |out| out.text(" after"))?;
-/// out.close_context(None)?;
+/// out.close_context(None, true)?;
 /// let bytes = out.into_inner().map_err(|error| error.into_parts().0)?;
 /// assert_eq!(bytes, b"before body after\n");
 /// # Ok::<(), std::io::Error>(())
@@ -332,7 +332,7 @@ impl<T: Write> Dumper<T> {
         }
         let result = (|| {
             while self.recorder.is_some() {
-                self.close_context(None)?;
+                self.close_context(None, true)?;
             }
             if !self.current_line.is_empty() {
                 self.flush_line()?;
@@ -665,21 +665,29 @@ impl<T: Write> Dumper<T> {
     ///
     /// Closing the last open main context emits the complete content of all
     /// contexts, including their prologues and epilogues, to the writer.
-    /// Each context ends its final line. If no context is open, only the requested
+    /// A context ends its final line when `new_line` is true or an indentation
+    /// change is supplied. Otherwise output continues using the enclosing
+    /// alignment. If no context is open, only the requested
     /// indentation change is applied. Decrements stop at zero.
     ///
     /// # Arguments
     ///
     /// * `indentation` — Change applied after closing, or `None` to leave
     ///   indentation unchanged.
+    /// * `new_line` — End the final line. An indentation change forces this,
+    ///   including a zero increment or decrement.
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` on success, or an error if output fails, target contexts
     /// remain open when closing the last open main context, a target tries to
     /// close a main context, or the dumper is finalized or has failed.
-    pub fn close_context(&mut self, indentation: Option<Indentation>) -> Result<()> {
-        self.close_current_context()?;
+    pub fn close_context(
+        &mut self,
+        indentation: Option<Indentation>,
+        new_line: bool,
+    ) -> Result<()> {
+        self.close_current_context(new_line || indentation.is_some())?;
         if let Some(indentation) = indentation {
             if let Some(recorder) = &mut self.recorder {
                 match indentation {
@@ -693,7 +701,7 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
-    fn close_current_context(&mut self) -> Result<()> {
+    fn close_current_context(&mut self, new_line: bool) -> Result<()> {
         self.ensure_active()?;
         if self.selected_target.is_none()
             // the root context is beeing closed
@@ -725,7 +733,7 @@ impl<T: Write> Dumper<T> {
         }
         let dump_to_writer = match &mut self.recorder {
             Some(recorder) => {
-                recorder.close_context()?;
+                recorder.close_context(new_line)?;
                 self.selected_target.is_none() && recorder.context_depth() == 0
             }
             None => false,
@@ -748,6 +756,7 @@ impl<T: Write> Dumper<T> {
         prefix: Option<&str>,
         bytes: &mut &[u8],
     ) -> Result<()> {
+        self.ensure_line_space(1)?;
         self.set_left_margin();
         let mut has_prefix = false;
         if let Some(prefix) = prefix {
@@ -768,7 +777,7 @@ impl<T: Write> Dumper<T> {
         if let Some(prologue) = name.and_then(|name| prologues.get(name)) {
             self.dump_recorder(prologues, epilogues, prologue)?;
         }
-        self.dump_content(prologues, epilogues, bytes, true)?;
+        let new_line = self.dump_content(prologues, epilogues, bytes, true)?;
         if let Some(epilogue) = name.and_then(|name| epilogues.get(name)) {
             self.dump_recorder(prologues, epilogues, epilogue)?;
         }
@@ -776,7 +785,9 @@ impl<T: Write> Dumper<T> {
             self.release_left_margin();
         }
         self.release_left_margin();
-        self.flush_line()?;
+        if new_line {
+            self.flush_line()?;
+        }
         Ok(())
     }
 
@@ -788,6 +799,7 @@ impl<T: Write> Dumper<T> {
     ) -> Result<()> {
         let mut bytes = recorder.encoded_content();
         self.dump_content(prologues, epilogues, &mut bytes, false)
+            .map(|_| ())
     }
 
     fn dump_content(
@@ -796,7 +808,7 @@ impl<T: Write> Dumper<T> {
         epilogues: &HashMap<String, Recorder>,
         bytes: &mut &[u8],
         in_context: bool,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         while !bytes.is_empty() {
             match Operation::from_bytes(bytes)? {
                 Operation::Text(text) => self.dump_text(text.0)?,
@@ -809,7 +821,9 @@ impl<T: Write> Dumper<T> {
                 Operation::OpenContext(context) => {
                     self.dump_context(prologues, epilogues, context.name, context.prefix, bytes)?;
                 }
-                Operation::CloseContext(_) if in_context => return Ok(()),
+                Operation::CloseContext(close) if in_context => {
+                    return Ok(close.0);
+                }
                 Operation::CloseContext(_) => {
                     return Err(Error::new(
                         ErrorKind::InvalidData,
@@ -821,7 +835,7 @@ impl<T: Write> Dumper<T> {
         if in_context {
             Err(Error::new(ErrorKind::UnexpectedEof, "unclosed context"))
         } else {
-            Ok(())
+            Ok(false)
         }
     }
 

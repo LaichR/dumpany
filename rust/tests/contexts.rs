@@ -6,6 +6,83 @@ use dumpany::core::{Dumper, DumperConfig, Indentation};
 use std::io::{Error, ErrorKind, Result};
 
 #[test]
+fn inline_context_restores_parent_alignment_and_keeps_epilogue_inline() -> Result<()> {
+    use dumpany::core::Target;
+    let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+    Context::new(Some("- "), None).with(&mut out, |out| {
+        let mut inner = Context::new(Some("call("), Some("call"));
+        inner.new_line = false;
+        inner.with(out, |out| {
+            out.text("first")?;
+            out.new_line(None)?;
+            out.text("second")?;
+            out.with_target(Target::Epilogue("call"), |out| out.text(")"))
+        })?;
+        out.text(";")?;
+        out.new_line(None)?;
+        out.text("tail")
+    })?;
+    assert_eq!(
+        out.into_inner().unwrap(),
+        b"- call(first\n       second);\n  tail\n"
+    );
+    Ok(())
+}
+
+#[test]
+fn indentation_change_forces_newline_even_when_inline_was_requested() -> Result<()> {
+    for change in [
+        Indentation::Increment(0),
+        Indentation::Increment(1),
+        Indentation::Decrement(0),
+    ] {
+        let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+        out.open_context(None, None)?;
+        out.text("first")?;
+        out.close_context(Some(change), false)?;
+        out.text("second")?;
+        let expected = if change == Indentation::Increment(1) {
+            "first\n    second\n"
+        } else {
+            "first\nsecond\n"
+        };
+        assert_eq!(out.into_inner().unwrap(), expected.as_bytes());
+    }
+    Ok(())
+}
+
+#[test]
+fn manual_root_context_can_continue_inline() -> Result<()> {
+    let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+    out.open_context(Some("("), None)?;
+    out.text("value")?;
+    out.close_context(None, false)?;
+    out.text(")")?;
+    assert_eq!(out.into_inner().unwrap(), b"(value)\n");
+    Ok(())
+}
+
+#[test]
+fn nested_context_preserves_alignment_after_explicit_newlines() -> Result<()> {
+    let mut dumper = Dumper::new(Vec::new(), DumperConfig::default())?;
+    Context::new(Some("- "), None).with(&mut dumper, |d| {
+        d.text("heading")?;
+        d.new_line(None)?;
+        Context::new(Some("* "), None).with(d, |d| {
+            d.text("first")?;
+            d.new_line(None)?;
+            d.text("second")
+        })?;
+        d.text("tail")
+    })?;
+    assert_eq!(
+        String::from_utf8(dumper.into_inner().unwrap()).unwrap(),
+        "- heading\n  * first\n    second\n  tail\n"
+    );
+    Ok(())
+}
+
+#[test]
 fn closing_context_adjusts_indentation_after_its_final_line() -> Result<()> {
     for nested in [false, true] {
         let mut dumper = Dumper::new(Vec::new(), DumperConfig::default())?;
@@ -14,13 +91,13 @@ fn closing_context_adjusts_indentation_after_its_final_line() -> Result<()> {
         }
         dumper.open_context(None, None)?;
         dumper.text("heading")?;
-        dumper.close_context(Some(Indentation::Increment(2)))?;
+        dumper.close_context(Some(Indentation::Increment(2)), true)?;
         dumper.open_context(None, None)?;
         dumper.text("body")?;
-        dumper.close_context(Some(Indentation::Decrement(255)))?;
+        dumper.close_context(Some(Indentation::Decrement(255)), true)?;
         dumper.text("tail")?;
         if nested {
-            dumper.close_context(None)?;
+            dumper.close_context(None, true)?;
         }
         assert_eq!(
             dumper.into_inner().unwrap(),

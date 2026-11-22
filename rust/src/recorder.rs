@@ -43,8 +43,8 @@ impl Recorder {
     }
 
     /// The caller must ensure a context is open before closing it.
-    pub fn close_context(&mut self) -> Result<()> {
-        CloseContext.to_bytes(&mut self.encoded_content)?;
+    pub fn close_context(&mut self, new_line: bool) -> Result<()> {
+        CloseContext(new_line).to_bytes(&mut self.encoded_content)?;
         self.context_depth -= 1;
         Ok(())
     }

@@ -10,7 +10,7 @@ use crate::core::{Dump, Dumper, Indentation, NewLine, NoBreak, Text};
 
 /// Close the current context without changing indentation as a [`Dump`] operation.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub(crate) struct CloseContext;
+pub(crate) struct CloseContext(pub bool);
 
 impl Dump for Context<'static> {
     fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
@@ -20,7 +20,7 @@ impl Dump for Context<'static> {
 
 impl Dump for CloseContext {
     fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
-        dumper.close_context(None)
+        dumper.close_context(None, self.0)
     }
 }
 
@@ -204,6 +204,7 @@ impl ToBytes for Indentation {
 impl ToBytes for CloseContext {
     fn to_bytes(&self, out: &mut BytesMut) -> Result<()> {
         out.put_u8(CLOSE_CONTEXT);
+        out.put_u8(u8::from(self.0));
         Ok(())
     }
 }
@@ -231,7 +232,11 @@ impl<'a> FromBytes<'a> for Operation<'a> {
                 optional_text(&mut remaining)?,
                 optional_text(&mut remaining)?,
             )),
-            CLOSE_CONTEXT => Self::CloseContext(CloseContext),
+            CLOSE_CONTEXT => Self::CloseContext(CloseContext(match byte(&mut remaining)? {
+                0 => false,
+                1 => true,
+                _ => return Err(invalid("invalid close-context newline flag")),
+            })),
             _ => return Err(invalid("unknown operation tag")),
         };
         *input = remaining;
