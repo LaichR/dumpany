@@ -321,8 +321,27 @@ impl<T: Write> Dumper<T> {
     ///
     /// Returns the writer on success. On failure, returns an [`IntoInnerError`]
     /// providing the original error and writer; pending output is discarded.
-    pub fn into_inner(mut self) -> std::result::Result<T, IntoInnerError<T>> {
-        match self.dump_all() {
+    pub fn into_inner(self) -> std::result::Result<T, IntoInnerError<T>> {
+        self.into_inner_with_new_line(true)
+    }
+
+    /// Finish output and recover the writer, optionally ending the final line.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_line` — Add a final line ending and end automatically closed contexts'
+    ///   lines. Defaults to true when using [`Self::into_inner`]. Explicit line
+    ///   breaks already requested by the caller are never removed.
+    ///
+    /// # Returns
+    ///
+    /// Returns the writer on success, or an [`IntoInnerError`] containing the
+    /// error and writer on failure. Already-finalized output is unchanged.
+    pub fn into_inner_with_new_line(
+        mut self,
+        new_line: bool,
+    ) -> std::result::Result<T, IntoInnerError<T>> {
+        match self.dump_all_with_new_line(new_line) {
             Ok(()) => Ok(self.writer),
             Err(error) => Err(IntoInnerError {
                 error,
@@ -350,6 +369,25 @@ impl<T: Write> Dumper<T> {
     /// dumper has failed, or finishing output fails. A failure while finishing
     /// output prevents further use of the dumper.
     pub fn dump_all(&mut self) -> Result<()> {
+        self.dump_all_with_new_line(true)
+    }
+
+    /// Finish output, optionally ending the final line, and flush the writer.
+    ///
+    /// Select main first. Explicit line breaks are preserved. Repeated calls
+    /// after successful finalization do nothing, regardless of `new_line`.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_line` — End pending text and automatically closed contexts' lines.
+    ///   Set false for a fragment that continues on the same line. This cannot
+    ///   remove a newline explicitly emitted earlier, including by context closing.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())`, or an error if a target or no-break region is active,
+    /// the dumper has failed, or output fails. Output failures are terminal.
+    pub fn dump_all_with_new_line(&mut self, new_line: bool) -> Result<()> {
         if self.state == DumperState::Finalized {
             return Ok(());
         }
@@ -368,10 +406,10 @@ impl<T: Write> Dumper<T> {
         }
         let result = (|| {
             while self.recorder.is_some() {
-                self.close_context(None, true)?;
+                self.close_context(None, new_line)?;
             }
             if !self.current_line.is_empty() {
-                self.flush_line()?;
+                self.flush_line_with_new_line(new_line)?;
             }
             self.writer.flush()
         })();
@@ -1139,10 +1177,16 @@ impl<T: Write> Dumper<T> {
     }
 
     fn flush_line(&mut self) -> Result<()> {
+        self.flush_line_with_new_line(true)
+    }
+
+    fn flush_line_with_new_line(&mut self, new_line: bool) -> Result<()> {
         if self.current_line.ends_with(' ') {
             self.current_line = self.current_line.trim_end().into();
         }
-        self.current_line.push_str(&self.config.new_line);
+        if new_line {
+            self.current_line.push_str(&self.config.new_line);
+        }
         let result = self.writer.write_all(self.current_line.as_bytes());
         if let Err(error) = result {
             self.state = DumperState::Failed;

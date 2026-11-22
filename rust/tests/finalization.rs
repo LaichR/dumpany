@@ -5,6 +5,87 @@ use dumpany::core::{Dumper, DumperConfig, Target};
 use std::io::{self, Write};
 
 #[test]
+fn finalizes_fragments_without_adding_a_newline() -> io::Result<()> {
+    for ending in ["\n", "\r\n", "<br>"] {
+        for (text, expected) in [
+            (String::new(), String::new()),
+            ("hello".into(), "hello".into()),
+            (format!("hello{ending}"), format!("hello{ending}")),
+        ] {
+            let mut out = Dumper::new(
+                Writer::default(),
+                DumperConfig {
+                    new_line: ending.into(),
+                    ..DumperConfig::default()
+                },
+            )?;
+            out.text(text)?;
+            out.dump_all_with_new_line(false)?;
+            out.dump_all()?;
+            assert_eq!(out.get_ref().bytes, expected.as_bytes());
+            assert_eq!(out.get_ref().flushes, 1);
+            assert!(out.text("more").is_err());
+            let mut writer = out.into_inner().unwrap();
+            writer.write_all(b" suffix")?;
+            assert_eq!(writer.bytes, format!("{expected} suffix").as_bytes());
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn fragment_finalization_closes_pending_contexts_without_extra_breaks() -> io::Result<()> {
+    let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+    out.open_context(Some("("), Some("root"))?;
+    out.open_context(Some("["), Some("child"))?;
+    out.text("body")?;
+    out.with_target(Target::Prologue("child"), |out| out.text("before:"))?;
+    out.with_target(Target::Epilogue("child"), |out| out.text(":after]"))?;
+    out.with_target(Target::Epilogue("root"), |out| out.text(")"))?;
+    assert_eq!(
+        out.into_inner_with_new_line(false).unwrap(),
+        b"([before:body:after])"
+    );
+    Ok(())
+}
+
+#[test]
+fn fragment_finalization_preserves_explicit_context_closing_breaks() -> io::Result<()> {
+    let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+    out.open_context(None, None)?;
+    out.text("body")?;
+    out.close_context(None, true)?;
+    assert_eq!(out.into_inner_with_new_line(false).unwrap(), b"body\n");
+    Ok(())
+}
+
+#[test]
+fn fragment_finalization_preserves_write_and_flush_errors() -> io::Result<()> {
+    for fail_write in [true, false] {
+        let writer = Writer {
+            fail_write,
+            fail_flush: !fail_write,
+            ..Writer::default()
+        };
+        let mut out = Dumper::new(writer, DumperConfig::default())?;
+        out.text("fragment")?;
+        let error = out
+            .into_inner_with_new_line(false)
+            .err()
+            .expect("writer must fail");
+        assert_eq!(
+            error.error().to_string(),
+            if fail_write {
+                "write failed"
+            } else {
+                "flush failed"
+            }
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn finalizes_pending_lines_once_and_leaves_writer_usable() -> io::Result<()> {
     for (text, expected) in [("", ""), ("hello", "hello\n"), ("hello\n", "hello\n")] {
         let writer = Writer::default();
