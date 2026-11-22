@@ -14,3 +14,4 @@
   - Nested no-break regions for composed output, preserving explicit line breaks.
   - Composition through iterators, joins, tuples, and the `Dump` trait.
   - Explicit output finalization.
+  - Optional finalization without a trailing newline for inline text fragments.

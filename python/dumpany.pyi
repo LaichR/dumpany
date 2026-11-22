@@ -105,12 +105,17 @@ class Dumper:
         :raises OSError: If text exceeds 65,535 Unicode characters, before output.
         :returns: None on success; writer errors propagate as exceptions.
         """
-    def dump_all(self) -> None:
+    def dump_all(self, *, new_line: builtins.bool = True) -> None:
         r"""
         Finish the dump, emit pending text, and flush the Python stream.
         
         The stream remains open. After successful completion, repeated calls do
         nothing and no further text may be added.
+        
+        :param new_line: End pending text and automatically closed contexts' lines.
+            Defaults to True. False emits a fragment without adding a final newline.
+            Explicit breaks, including context closing breaks, are never removed.
+        :returns: None on success; output errors propagate as exceptions.
         """
 
 @typing.final

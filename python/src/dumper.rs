@@ -78,7 +78,15 @@ impl PyDumper {
     ///
     /// The stream remains open. After successful completion, repeated calls do
     /// nothing and no further text may be added.
-    fn dump_all(&mut self) -> PyResult<()> {
-        self.inner.dump_all().map_err(PyErr::from)
+    ///
+    /// :param new_line: End pending text and automatically closed contexts' lines.
+    ///     Defaults to True. False emits a fragment without adding a final newline.
+    ///     Explicit breaks, including context closing breaks, are never removed.
+    /// :returns: None on success; output errors propagate as exceptions.
+    #[pyo3(signature = (*, new_line=true))]
+    fn dump_all(&mut self, new_line: bool) -> PyResult<()> {
+        self.inner
+            .dump_all_with_new_line(new_line)
+            .map_err(PyErr::from)
     }
 }
