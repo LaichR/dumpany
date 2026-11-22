@@ -667,8 +667,8 @@ impl<T: Write> Dumper<T> {
     /// contexts, including their prologues and epilogues, to the writer.
     /// A context ends its final line when `new_line` is true or an indentation
     /// change is supplied. Otherwise output continues using the enclosing
-    /// alignment. If no context is open, only the requested
-    /// indentation change is applied. Decrements stop at zero.
+    /// alignment. Closing without an open context returns an error without
+    /// changing indentation or output. Decrements stop at zero.
     ///
     /// # Arguments
     ///
@@ -679,6 +679,7 @@ impl<T: Write> Dumper<T> {
     ///
     /// # Returns
     ///
+    /// Returns [`ErrorKind::InvalidInput`] if no context is open.
     /// Returns `Ok(())` on success, or an error if output fails, target contexts
     /// remain open when closing the last open main context, a target tries to
     /// close a main context, or the dumper is finalized or has failed.
@@ -703,6 +704,9 @@ impl<T: Write> Dumper<T> {
 
     fn close_current_context(&mut self, new_line: bool) -> Result<()> {
         self.ensure_active()?;
+        if self.recorder.is_none() {
+            return Err(Error::new(ErrorKind::InvalidInput, "no context is open"));
+        }
         if self.selected_target.is_none()
             // the root context is beeing closed
             && self

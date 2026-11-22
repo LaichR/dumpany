@@ -6,6 +6,41 @@ use dumpany::core::{Dumper, DumperConfig, Indentation};
 use std::io::{Error, ErrorKind, Result};
 
 #[test]
+fn unmatched_close_is_rejected_without_changing_output_or_indentation() -> Result<()> {
+    for new_line in [false, true] {
+        for change in [
+            None,
+            Some(Indentation::Increment(1)),
+            Some(Indentation::Decrement(1)),
+        ] {
+            let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+            out.inc_indent()?;
+            out.text("before")?;
+            assert_eq!(
+                out.close_context(change, new_line).unwrap_err().kind(),
+                ErrorKind::InvalidInput
+            );
+            assert!(out.get_ref().is_empty());
+            out.text(" after")?;
+            out.new_line(None)?;
+            out.open_context(None, None)?;
+            out.text("inside")?;
+            out.close_context(None, true)?;
+            assert_eq!(
+                out.close_context(change, new_line).unwrap_err().kind(),
+                ErrorKind::InvalidInput
+            );
+            out.text("tail")?;
+            assert_eq!(
+                out.into_inner().unwrap(),
+                b"    before after\n    inside\n    tail\n"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn inline_context_restores_parent_alignment_and_keeps_epilogue_inline() -> Result<()> {
     use dumpany::core::Target;
     let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
