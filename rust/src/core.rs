@@ -124,12 +124,24 @@ pub struct Dumper<T: Write> {
     current_line: String,
     left_margin: Vec<usize>,
     selected_target: Option<SelectedTarget>,
+    // Recording state: one saved parent for the outer region, never a recorder stack.
+    region_capture: Option<RegionCapture>,
+    // Suppress automatic line wrapping while an eventually nested no_break section is emitted.
+    no_break_depth: usize,
 }
 
 struct SelectedTarget {
     main: Recorder,
     name: String,
     prologue: bool,
+}
+
+/// Save the enclosing destination while the outer region records independently.
+struct RegionCapture {
+    /// Parent body or section recorder; None means replay directly when finished.
+    main: Option<Recorder>,
+    /// Nested regions share the active recorder and only change this counter.
+    depth: usize,
 }
 
 /// Recover the writer and error after [`Dumper::into_inner`] fails.
@@ -212,6 +224,22 @@ impl<T: AsRef<str>> Dump for NoBreak<T> {
     }
 }
 
+/// Dump composed content without automatic line breaks inside it.
+///
+/// Regions nest and honor explicit newlines, including context closing breaks.
+/// Use an iterator through [`Dumper::no_break_region`] or supply a [`Dump`] value
+/// here. Unlike [`NoBreak`], regions have no 65,535-character limit.
+pub struct NoBreakRegion<T>(
+    /// Composed content to keep together between explicit line breaks.
+    pub T,
+);
+
+impl<T: Dump> Dump for NoBreakRegion<T> {
+    fn dump<W: Write>(&self, dumper: &mut Dumper<W>) -> Result<()> {
+        dumper.no_break_region(|out| self.0.dump(out))
+    }
+}
+
 pub(crate) fn no_break_length(text: &str) -> Result<u16> {
     u16::try_from(text.chars().count()).map_err(|_| {
         Error::new(
@@ -273,6 +301,8 @@ impl<T: Write> Dumper<T> {
             current_line: String::new(),
             left_margin: Vec::new(),
             selected_target: None,
+            region_capture: None,
+            no_break_depth: 0,
         })
     }
 
@@ -324,6 +354,12 @@ impl<T: Write> Dumper<T> {
             return Ok(());
         }
         self.ensure_active()?;
+        if self.in_no_break_region() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "cannot finalize inside a no-break region",
+            ));
+        }
         if self.selected_target.is_some() {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -364,6 +400,12 @@ impl<T: Write> Dumper<T> {
     /// selected. Also returns an error if the dumper is finalized or has failed.
     pub fn select_target(&mut self, target: Target<'_>) -> Result<()> {
         self.ensure_active()?;
+        if self.in_no_break_region() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "cannot switch targets inside a no-break region",
+            ));
+        }
         if self.selected_target.is_some() {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -389,7 +431,7 @@ impl<T: Write> Dumper<T> {
             Target::Prologue(_) => self.prologues.remove(&name),
             Target::Epilogue(_) => self.epilogues.remove(&name),
         }
-        .unwrap_or_default();
+        .unwrap_or_else(|| Recorder::with_new_line(&self.config.new_line));
         let main = std::mem::replace(recorder, section);
         self.selected_target = Some(SelectedTarget {
             main,
@@ -410,6 +452,12 @@ impl<T: Write> Dumper<T> {
     /// Returns `Ok(())`, or an error if the dumper is finalized or has failed.
     pub fn select_main(&mut self) -> Result<()> {
         self.ensure_active()?;
+        if self.in_no_break_region() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "cannot switch targets inside a no-break region",
+            ));
+        }
         let Some(selected) = self.selected_target.take() else {
             return Ok(());
         };
@@ -497,6 +545,124 @@ impl<T: Write> Dumper<T> {
             let text = text.as_ref();
             self.dump_no_break(text, no_break_length(text)?)
         }
+    }
+
+    /// Produce composed output without automatic line breaks inside it.
+    ///
+    /// The first explicit line is measured before output; if it does not fit,
+    /// the region starts on a new line. Oversized lines overflow intact. Regions
+    /// nest, and explicit newlines and context closing breaks are honored.
+    /// Contexts opened inside must close inside. Target selection and finalization
+    /// are not allowed inside a region. An error permanently fails the dumper;
+    /// pending output is not replayed. Bytes already written cannot be undone.
+    ///
+    /// # Arguments
+    ///
+    /// * `body` — Closure producing text, iterators, or other dump operations.
+    ///
+    /// # Returns
+    ///
+    /// Returns the closure's value, or an error from the closure or output.
+    /// The closure's original error is preserved. The dumper cannot be reused
+    /// after a region error. Panics are not caught.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dumpany::core::{Dumper, DumperConfig, Text};
+    /// let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+    /// out.no_break_region(|out| {
+    ///     out.iterator([Text("return "), Text("a + b"), Text(";")])
+    /// })?;
+    /// assert_eq!(out.into_inner().unwrap(), b"return a + b;\n");
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    pub fn no_break_region<R>(&mut self, body: impl FnOnce(&mut Self) -> Result<R>) -> Result<R> {
+        self.begin_no_break_region()?;
+        match body(self) {
+            Ok(value) => self.end_no_break_region().map(|()| value),
+            Err(error) => {
+                self.abort_no_break_region();
+                Err(error)
+            }
+        }
+    }
+
+    /// Begin collecting a no-break region; prefer [`Self::no_break_region`].
+    ///
+    /// Returns `Ok(())`, or an error if the dumper is finalized or has failed.
+    /// The outermost call swaps in a fresh recorder; nested calls only increase
+    /// the depth. Pair each call with [`Self::end_no_break_region`].
+    pub fn begin_no_break_region(&mut self) -> Result<()> {
+        self.ensure_active()?;
+        if let Some(capture) = &mut self.region_capture {
+            capture.depth += 1;
+        } else {
+            self.region_capture = Some(RegionCapture {
+                main: self.recorder.take(),
+                depth: 1,
+            });
+            self.recorder = Some(Recorder::with_new_line(&self.config.new_line));
+        }
+        Ok(())
+    }
+
+    /// Finish a no-break region; nested regions only decrease the nesting depth.
+    /// The outermost end attaches the completed recorder to its parent, or
+    /// replays it immediately when there was no parent recording.
+    ///
+    /// Returns `Ok(())`, an output error, or [`ErrorKind::InvalidInput`] if no
+    /// region is open or its contexts remain unclosed. Any error permanently fails
+    /// the dumper; no rollback or further replay is attempted.
+    pub fn end_no_break_region(&mut self) -> Result<()> {
+        self.ensure_active()?;
+        let result = (|| {
+            let capture = self
+                .region_capture
+                .as_mut()
+                .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "no no-break region is open"))?;
+            assert!(
+                capture.depth > 0,
+                "active region capture must have positive depth"
+            );
+            capture.depth -= 1;
+            if capture.depth != 0 {
+                return Ok(());
+            }
+            let region = self.recorder.take().expect("region recorder exists");
+            if region.context_depth() != 0 {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "unclosed context in no-break region",
+                ));
+            }
+            self.recorder = self.region_capture.take().expect("region is open").main;
+            if let Some(parent) = &mut self.recorder {
+                parent.no_break_region(region);
+            } else {
+                let prologues = std::mem::take(&mut self.prologues);
+                let epilogues = std::mem::take(&mut self.epilogues);
+                self.names.clear();
+                self.dump_no_break_region(&prologues, &epilogues, &region)?;
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.abort_no_break_region();
+        }
+        result
+    }
+
+    /// Permanently fail the dumper after an error while producing a region.
+    ///
+    /// Pending output will not be replayed and subsequent operations return an
+    /// error. This does not undo bytes already written. Returns nothing.
+    pub fn abort_no_break_region(&mut self) {
+        self.state = DumperState::Failed;
+    }
+
+    fn in_no_break_region(&self) -> bool {
+        self.region_capture.is_some()
     }
 
     /// Dump a sequence with a delimiter between adjacent items.
@@ -653,7 +819,7 @@ impl<T: Write> Dumper<T> {
             ));
         }
         self.recorder
-            .get_or_insert_with(Recorder::default)
+            .get_or_insert_with(|| Recorder::with_new_line(&self.config.new_line))
             .open_context(prefix, name)?;
         if let Some(name) = name {
             self.names.push(name.to_owned());
@@ -704,10 +870,21 @@ impl<T: Write> Dumper<T> {
 
     fn close_current_context(&mut self, new_line: bool) -> Result<()> {
         self.ensure_active()?;
-        if self.recorder.is_none() {
+        if self
+            .recorder
+            .as_ref()
+            .is_none_or(|recorder| !recorder.can_close_context())
+        {
+            if self.in_no_break_region() {
+                self.abort_no_break_region();
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "cannot close a context outside the no-break region",
+                ));
+            }
             return Err(Error::new(ErrorKind::InvalidInput, "no context is open"));
         }
-        if self.selected_target.is_none()
+        if self.selected_target.is_none() && !self.in_no_break_region()
             // the root context is beeing closed
             && self
                 .recorder
@@ -738,7 +915,9 @@ impl<T: Write> Dumper<T> {
         let dump_to_writer = match &mut self.recorder {
             Some(recorder) => {
                 recorder.close_context(new_line)?;
-                self.selected_target.is_none() && recorder.context_depth() == 0
+                self.selected_target.is_none()
+                    && self.region_capture.is_none()
+                    && recorder.context_depth() == 0
             }
             None => false,
         };
@@ -756,18 +935,20 @@ impl<T: Write> Dumper<T> {
         &mut self,
         prologues: &HashMap<String, Recorder>,
         epilogues: &HashMap<String, Recorder>,
-        name: Option<&str>,
-        prefix: Option<&str>,
+        context: crate::context::Context<'_>,
         bytes: &mut &[u8],
+        regions: &[Recorder],
     ) -> Result<()> {
         self.ensure_line_space(1)?;
         self.set_left_margin();
         let mut has_prefix = false;
-        if let Some(prefix) = prefix {
+        if let Some(prefix) = context.prefix {
             // we assume that the prefix is allways
 
             self.current_line.push_str(prefix);
-            if self.current_line.chars().count() > self.config.line_width {
+            if self.no_break_depth == 0  // we must not break so there is no check of line length!
+                && self.current_line.chars().count() > self.config.line_width
+            {
                 // we assume that the prefix is short and fits onto the
                 // line within the line width!
                 return Err(Error::new(
@@ -778,11 +959,11 @@ impl<T: Write> Dumper<T> {
             self.set_left_margin();
             has_prefix = true;
         }
-        if let Some(prologue) = name.and_then(|name| prologues.get(name)) {
+        if let Some(prologue) = context.name.and_then(|name| prologues.get(name)) {
             self.dump_recorder(prologues, epilogues, prologue)?;
         }
-        let new_line = self.dump_content(prologues, epilogues, bytes, true)?;
-        if let Some(epilogue) = name.and_then(|name| epilogues.get(name)) {
+        let new_line = self.dump_content(prologues, epilogues, bytes, true, regions)?;
+        if let Some(epilogue) = context.name.and_then(|name| epilogues.get(name)) {
             self.dump_recorder(prologues, epilogues, epilogue)?;
         }
         if has_prefix {
@@ -802,7 +983,7 @@ impl<T: Write> Dumper<T> {
         recorder: &Recorder,
     ) -> Result<()> {
         let mut bytes = recorder.encoded_content();
-        self.dump_content(prologues, epilogues, &mut bytes, false)
+        self.dump_content(prologues, epilogues, &mut bytes, false, recorder.regions())
             .map(|_| ())
     }
 
@@ -812,9 +993,16 @@ impl<T: Write> Dumper<T> {
         epilogues: &HashMap<String, Recorder>,
         bytes: &mut &[u8],
         in_context: bool,
+        regions: &[Recorder],
     ) -> Result<bool> {
         while !bytes.is_empty() {
             match Operation::from_bytes(bytes)? {
+                Operation::NoBreakRegion(index) => {
+                    let region = regions.get(index).ok_or_else(|| {
+                        Error::new(ErrorKind::InvalidData, "unknown no-break region")
+                    })?;
+                    self.dump_no_break_region(prologues, epilogues, region)?
+                }
                 Operation::Text(text) => self.dump_text(text.0)?,
                 Operation::NoBreak { text, length } => self.dump_no_break(text, length)?,
                 Operation::NewLine(line) => self.new_line(line.0)?,
@@ -823,7 +1011,7 @@ impl<T: Write> Dumper<T> {
                     self.indent = self.indent.saturating_sub(amount as usize)
                 }
                 Operation::OpenContext(context) => {
-                    self.dump_context(prologues, epilogues, context.name, context.prefix, bytes)?;
+                    self.dump_context(prologues, epilogues, context, bytes, regions)?;
                 }
                 Operation::CloseContext(close) if in_context => {
                     return Ok(close.0);
@@ -841,6 +1029,26 @@ impl<T: Write> Dumper<T> {
         } else {
             Ok(false)
         }
+    }
+
+    // Check the child recorder's first-line width, then replay its content once.
+    // Explicit breaks still work; no_break_depth disables only automatic wrapping.
+    fn dump_no_break_region(
+        &mut self,
+        prologues: &HashMap<String, Recorder>,
+        epilogues: &HashMap<String, Recorder>,
+        region: &Recorder,
+    ) -> Result<()> {
+        if self.no_break_depth == 0 {
+            let required = region.first_line_width(prologues, epilogues);
+            if required > 0 {
+                self.ensure_line_space(required)?;
+            }
+        }
+        self.no_break_depth += 1;
+        let result = self.dump_recorder(prologues, epilogues, region);
+        self.no_break_depth -= 1;
+        result
     }
 
     fn dump_no_break(&mut self, text: &str, length: u16) -> Result<()> {
@@ -895,7 +1103,8 @@ impl<T: Write> Dumper<T> {
     }
     // Reserve space when possible, allowing overflow on a fresh line.
     fn ensure_line_space(&mut self, required_width: usize) -> Result<()> {
-        if !self.current_line.trim().is_empty()
+        if self.no_break_depth == 0
+            && !self.current_line.trim().is_empty()
             && self
                 .current_line
                 .chars()
@@ -920,7 +1129,8 @@ impl<T: Write> Dumper<T> {
     /// since it did not fit anymore
     fn add_line(&mut self, line: &str, delimiter: char) -> bool {
         self.current_line.push_str(line);
-        if self.current_line.chars().count() < self.config.line_width && !delimiter.is_whitespace()
+        if (self.no_break_depth > 0 || self.current_line.chars().count() < self.config.line_width)
+            && !delimiter.is_whitespace()
         {
             self.current_line.push(delimiter);
             return true;
@@ -947,7 +1157,9 @@ impl<T: Write> Dumper<T> {
         let mut end = line.len();
         let mut head = line;
         self.ensure_line_space(1)?;
-        while head.chars().count() + self.current_line.chars().count() > self.config.line_width {
+        while self.no_break_depth == 0
+            && head.chars().count() + self.current_line.chars().count() > self.config.line_width
+        {
             if let Some(mut pos) = head[..end].rfind(&f) {
                 if head[..pos].chars().count() + self.current_line.chars().count()
                     <= self.config.line_width
