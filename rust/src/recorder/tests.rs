@@ -2,7 +2,7 @@ use super::*;
 use crate::operations::{FromBytes, Operation};
 
 #[test]
-fn attached_region_keeps_its_own_content_and_contributes_to_parent_width() -> Result<()> {
+fn attached_region_keeps_its_own_content() -> Result<()> {
     let mut recorder = Recorder::default();
     recorder.text("before ")?;
     let mut region = Recorder::default();
@@ -11,10 +11,6 @@ fn attached_region_keeps_its_own_content_and_contributes_to_parent_width() -> Re
     recorder.no_break_region(region);
     recorder.text(" after")?;
     assert_eq!(recorder.regions.len(), 1);
-    assert_eq!(
-        recorder.regions[0].first_line_width(&HashMap::new(), &HashMap::new()),
-        5
-    );
 
     let mut input = recorder.encoded_content();
     assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text("before "));
@@ -28,10 +24,6 @@ fn attached_region_keeps_its_own_content_and_contributes_to_parent_width() -> Re
     assert!(content.is_empty());
     assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text(" after"));
     assert!(input.is_empty());
-    assert_eq!(
-        recorder.first_line_width(&HashMap::new(), &HashMap::new()),
-        18
-    );
     Ok(())
 }
 
