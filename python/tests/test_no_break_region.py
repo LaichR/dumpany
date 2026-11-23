@@ -16,7 +16,7 @@ def render(content, width=8):
 
 
 @pytest.mark.parametrize("recorded", [False, True])
-def test_generator_statement_is_measured_and_consumed_once(recorded):
+def test_generator_statement_continues_here_and_is_consumed_once(recorded):
     calls = []
 
     def statement():
@@ -25,8 +25,14 @@ def test_generator_statement_is_measured_and_consumed_once(recorded):
             yield text
 
     content = ["long ", NoBreakRegion(statement())]
-    assert render(Context(content) if recorded else content) == "long\na + b\n"
+    assert render(Context(content) if recorded else content) == "long a + b\n"
     assert calls == ["a", " + ", "b"]
+
+
+@pytest.mark.parametrize("recorded", [False, True])
+def test_region_starts_on_an_already_full_line(recorded):
+    content = ["12345678", NoBreakRegion(["a", " + ", "b"])]
+    assert render(Context(content) if recorded else content) == "12345678a + b\n"
 
 
 def test_nested_regions_joins_and_explicit_newlines():

@@ -469,7 +469,7 @@ impl<T: Write> Dumper<T> {
             Target::Prologue(_) => self.prologues.remove(&name),
             Target::Epilogue(_) => self.epilogues.remove(&name),
         }
-        .unwrap_or_else(|| Recorder::with_new_line(&self.config.new_line));
+        .unwrap_or_default();
         let main = std::mem::replace(recorder, section);
         self.selected_target = Some(SelectedTarget {
             main,
@@ -587,9 +587,9 @@ impl<T: Write> Dumper<T> {
 
     /// Produce composed output without automatic line breaks inside it.
     ///
-    /// The first explicit line is measured before output; if it does not fit,
-    /// the region starts on a new line. Oversized lines overflow intact. Regions
-    /// nest, and explicit newlines and context closing breaks are honored.
+    /// The region starts at the current position, even if the line is already
+    /// full. Automatic wrapping is suppressed; oversized lines overflow intact.
+    /// Regions nest, and explicit newlines and context closing breaks are honored.
     /// Contexts opened inside must close inside. Target selection and finalization
     /// are not allowed inside a region. An error permanently fails the dumper;
     /// pending output is not replayed. Bytes already written cannot be undone.
@@ -640,7 +640,7 @@ impl<T: Write> Dumper<T> {
                 main: self.recorder.take(),
                 depth: 1,
             });
-            self.recorder = Some(Recorder::with_new_line(&self.config.new_line));
+            self.recorder = Some(Recorder::default());
         }
         Ok(())
     }
@@ -857,7 +857,7 @@ impl<T: Write> Dumper<T> {
             ));
         }
         self.recorder
-            .get_or_insert_with(|| Recorder::with_new_line(&self.config.new_line))
+            .get_or_insert_with(Recorder::default)
             .open_context(prefix, name)?;
         if let Some(name) = name {
             self.names.push(name.to_owned());
@@ -1069,7 +1069,7 @@ impl<T: Write> Dumper<T> {
         }
     }
 
-    // Check the child recorder's first-line width, then replay its content once.
+    // Continue at the current position and replay the region once, without measuring it.
     // Explicit breaks still work; no_break_depth disables only automatic wrapping.
     fn dump_no_break_region(
         &mut self,
@@ -1077,12 +1077,6 @@ impl<T: Write> Dumper<T> {
         epilogues: &HashMap<String, Recorder>,
         region: &Recorder,
     ) -> Result<()> {
-        if self.no_break_depth == 0 {
-            let required = region.first_line_width(prologues, epilogues);
-            if required > 0 {
-                self.ensure_line_space(required)?;
-            }
-        }
         self.no_break_depth += 1;
         let result = self.dump_recorder(prologues, epilogues, region);
         self.no_break_depth -= 1;
@@ -1152,6 +1146,13 @@ impl<T: Write> Dumper<T> {
         {
             self.flush_line()?;
         }
+        self.prepare_line_indentation();
+        Ok(())
+    }
+
+    // Start an empty line at the active context margin or normal indentation.
+    // This never checks the width or inserts a line break.
+    fn prepare_line_indentation(&mut self) {
         if self.current_line.is_empty() {
             if let Some(left_margin) = self.left_margin.last() {
                 self.current_line.push_str(&" ".repeat(*left_margin))
@@ -1160,15 +1161,13 @@ impl<T: Write> Dumper<T> {
                 self.current_line.push_str(&indentation);
             }
         }
-        Ok(())
     }
 
     /// add a line and return false if the delimiter needs to go on the next line
     /// since it did not fit anymore
     fn add_line(&mut self, line: &str, delimiter: char) -> bool {
         self.current_line.push_str(line);
-        if (self.no_break_depth > 0 || self.current_line.chars().count() < self.config.line_width)
-            && !delimiter.is_whitespace()
+        if self.current_line.chars().count() < self.config.line_width && !delimiter.is_whitespace()
         {
             self.current_line.push(delimiter);
             return true;
@@ -1197,13 +1196,29 @@ impl<T: Write> Dumper<T> {
     }
 
     fn process_line(&mut self, line: &str, add_new_line: bool) -> Result<()> {
+        if self.no_break_depth > 0 {
+            self.process_line_unwrapped(line);
+        } else {
+            self.process_line_wrapped(line)?;
+        }
+        if add_new_line {
+            self.flush_line()?;
+        }
+        Ok(())
+    }
+
+    // Append verbatim: only explicit breaks handled by process_line may flush it.
+    fn process_line_unwrapped(&mut self, line: &str) {
+        self.prepare_line_indentation();
+        self.current_line.push_str(line);
+    }
+
+    fn process_line_wrapped(&mut self, line: &str) -> Result<()> {
         let f = |x: char| matches!(x, ' ' | '\t' | ',' | ';');
         let mut end = line.len();
         let mut head = line;
         self.ensure_line_space(1)?;
-        while self.no_break_depth == 0
-            && head.chars().count() + self.current_line.chars().count() > self.config.line_width
-        {
+        while head.chars().count() + self.current_line.chars().count() > self.config.line_width {
             if let Some(mut pos) = head[..end].rfind(&f) {
                 if head[..pos].chars().count() + self.current_line.chars().count()
                     <= self.config.line_width
@@ -1224,9 +1239,6 @@ impl<T: Write> Dumper<T> {
             }
         }
         self.add_line(head, ' ');
-        if add_new_line {
-            self.flush_line()?;
-        }
         Ok(())
     }
 }

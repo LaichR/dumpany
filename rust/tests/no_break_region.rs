@@ -13,9 +13,13 @@ fn dumper(width: usize) -> Result<Dumper<Vec<u8>>> {
 }
 
 #[test]
-fn composed_iterator_wraps_as_one_unit_including_when_recorded() -> Result<()> {
+fn composed_iterator_starts_at_current_position_including_when_recorded() -> Result<()> {
     for recorded in [false, true] {
-        for (prefix, expected) in [("x ", "x a + b\n"), ("long ", "long\na + b\n")] {
+        for (prefix, expected) in [
+            ("x ", "x a + b\n"),
+            ("long ", "long a + b\n"),
+            ("12345678", "12345678a + b\n"),
+        ] {
             let mut out = dumper(8)?;
             if recorded {
                 out.open_context(None, None)?;
@@ -46,6 +50,28 @@ fn oversized_and_nested_regions_never_wrap_automatically() -> Result<()> {
 }
 
 #[test]
+fn automatic_wrapping_resumes_after_region() -> Result<()> {
+    let mut out = dumper(8)?;
+    out.text("head ")?;
+    out.no_break_region(|out| out.text("a + b"))?;
+    out.text("tail")?;
+    assert_eq!(out.into_inner().unwrap(), b"head a + b\ntail\n");
+    Ok(())
+}
+
+#[test]
+fn unwrapped_lines_preserve_delimiters_and_indent_even_beyond_width() -> Result<()> {
+    let mut out = dumper(2)?;
+    out.inc_indent()?;
+    out.no_break_region(|out| out.text("a, b;\tc\nnext, value;"))?;
+    assert_eq!(
+        out.into_inner().unwrap(),
+        b"    a, b;\tc\n    next, value;\n"
+    );
+    Ok(())
+}
+
+#[test]
 fn explicit_newlines_and_context_alignment_are_preserved() -> Result<()> {
     let mut out = dumper(8)?;
     Context::new(Some("- "), None).with(&mut out, |out| {
@@ -61,19 +87,19 @@ fn explicit_newlines_and_context_alignment_are_preserved() -> Result<()> {
     })?;
     assert_eq!(
         out.into_inner().unwrap(),
-        b"- head\n  a + b\n  call(a, b, c, d)\n"
+        b"- head a + b\n  call(a, b, c, d)\n"
     );
     Ok(())
 }
 
 #[test]
-fn unicode_and_first_explicit_line_determine_fit() -> Result<()> {
+fn unicode_and_explicit_newlines_are_preserved_without_a_leading_break() -> Result<()> {
     let mut out = dumper(6)?;
     out.text("é ")?;
     out.no_break_region(|out| out.text("界 + x\nsecond line is long"))?;
     assert_eq!(
         out.into_inner().unwrap(),
-        "é\n界 + x\nsecond line is long\n".as_bytes()
+        "é 界 + x\nsecond line is long\n".as_bytes()
     );
     Ok(())
 }
@@ -147,7 +173,7 @@ fn region_in_target_uses_the_same_wrapping_rules() -> Result<()> {
 }
 
 #[test]
-fn retained_width_includes_sections_supplied_after_capture() -> Result<()> {
+fn sections_supplied_after_capture_do_not_introduce_automatic_breaks() -> Result<()> {
     for section_newline in [false, true] {
         let mut out = dumper(10)?;
         out.open_context(None, Some("root"))?;
@@ -169,7 +195,7 @@ fn retained_width_includes_sections_supplied_after_capture() -> Result<()> {
         let expected = if section_newline {
             b"head pre\n     value end\n".as_slice()
         } else {
-            b"head\npre value end\n".as_slice()
+            b"head pre value end\n".as_slice()
         };
         assert_eq!(out.into_inner().unwrap(), expected);
     }
@@ -177,7 +203,7 @@ fn retained_width_includes_sections_supplied_after_capture() -> Result<()> {
 }
 
 #[test]
-fn captured_width_uses_configured_line_endings_and_survives_nested_capture() -> Result<()> {
+fn nested_regions_honor_configured_line_endings_without_a_leading_break() -> Result<()> {
     let mut out = Dumper::new(
         Vec::new(),
         DumperConfig {
@@ -195,7 +221,7 @@ fn captured_width_uses_configured_line_endings_and_survives_nested_capture() -> 
     out.close_context(None, true)?;
     assert_eq!(
         out.into_inner().unwrap(),
-        "head<br>é + 界<br>long continuation tail<br>".as_bytes()
+        "head é + 界<br>long continuation tail<br>".as_bytes()
     );
     Ok(())
 }
