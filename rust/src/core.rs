@@ -44,6 +44,23 @@ pub enum Indentation {
     Decrement(u8),
 }
 
+/// Select whether a join inserts explicit breaks between complete items.
+///
+/// Explicit policies suppress ordinary wrapping within items and delimiters,
+/// but preserve their explicit newlines. Delimiters stay on the preceding line,
+/// even if attaching them exceeds the configured width.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BreakPolicy {
+    /// Insert no breaks of its own; items and delimiters follow surrounding wrapping rules.
+    #[default]
+    Inherit,
+    /// End the line after each delimiter, unless it already ends on an empty line.
+    Always,
+    /// Break after a delimiter when the next item's first line will not fit.
+    /// Items and delimiters are emitted intact between their own explicit breaks.
+    AsNeeded,
+}
+
 /// Enables a value to emit formatted output through a [`Dumper`].
 pub trait Dump {
     /// Emit this value's formatted output.
@@ -126,6 +143,11 @@ pub struct Dumper<T: Write> {
     selected_target: Option<SelectedTarget>,
     // Recording state: one saved parent for the outer region, never a recorder stack.
     region_capture: Option<RegionCapture>,
+    // Only routing state: nested joins share the outermost join's recorder.
+    join_depth: usize,
+    join_owns_recorder: bool,
+    // Includes late sections replayed inside an item.
+    join_replay_depth: usize,
     // Suppress automatic line wrapping while an eventually nested no_break section is emitted.
     no_break_depth: usize,
 }
@@ -302,6 +324,9 @@ impl<T: Write> Dumper<T> {
             left_margin: Vec::new(),
             selected_target: None,
             region_capture: None,
+            join_depth: 0,
+            join_owns_recorder: false,
+            join_replay_depth: 0,
             no_break_depth: 0,
         })
     }
@@ -392,6 +417,12 @@ impl<T: Write> Dumper<T> {
             return Ok(());
         }
         self.ensure_active()?;
+        if self.join_depth > 0 {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "cannot finalize inside a join",
+            ));
+        }
         if self.in_no_break_region() {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -438,6 +469,12 @@ impl<T: Write> Dumper<T> {
     /// selected. Also returns an error if the dumper is finalized or has failed.
     pub fn select_target(&mut self, target: Target<'_>) -> Result<()> {
         self.ensure_active()?;
+        if self.join_depth > 0 {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "cannot switch targets inside a join",
+            ));
+        }
         if self.in_no_break_region() {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -490,6 +527,12 @@ impl<T: Write> Dumper<T> {
     /// Returns `Ok(())`, or an error if the dumper is finalized or has failed.
     pub fn select_main(&mut self) -> Result<()> {
         self.ensure_active()?;
+        if self.join_depth > 0 {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "cannot switch targets inside a join",
+            ));
+        }
         if self.in_no_break_region() {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -571,7 +614,7 @@ impl<T: Write> Dumper<T> {
     ///
     /// # Returns
     ///
-    /// Returns [`ErrorKind::InvalidInput`] without emitting or recording text if
+    /// Returns [`ErrorKind::InvalidInput`] without accepting the text if
     /// it exceeds 65,535 Unicode characters.
     /// Returns `Ok(())`, or an error if writing fails, or the
     /// dumper is finalized or has failed.
@@ -592,7 +635,7 @@ impl<T: Write> Dumper<T> {
     /// Regions nest, and explicit newlines and context closing breaks are honored.
     /// Contexts opened inside must close inside. Target selection and finalization
     /// are not allowed inside a region. An error permanently fails the dumper;
-    /// pending output is not replayed. Bytes already written cannot be undone.
+    /// pending output is discarded. Bytes already written cannot be undone.
     ///
     /// # Arguments
     ///
@@ -626,11 +669,10 @@ impl<T: Write> Dumper<T> {
         }
     }
 
-    /// Begin collecting a no-break region; prefer [`Self::no_break_region`].
+    /// Begin a no-break region; prefer [`Self::no_break_region`].
     ///
     /// Returns `Ok(())`, or an error if the dumper is finalized or has failed.
-    /// The outermost call swaps in a fresh recorder; nested calls only increase
-    /// the depth. Pair each call with [`Self::end_no_break_region`].
+    /// Regions may nest. Pair each call with [`Self::end_no_break_region`].
     pub fn begin_no_break_region(&mut self) -> Result<()> {
         self.ensure_active()?;
         if let Some(capture) = &mut self.region_capture {
@@ -645,13 +687,11 @@ impl<T: Write> Dumper<T> {
         Ok(())
     }
 
-    /// Finish a no-break region; nested regions only decrease the nesting depth.
-    /// The outermost end attaches the completed recorder to its parent, or
-    /// replays it immediately when there was no parent recording.
+    /// Finish the innermost no-break region and resume the enclosing wrapping rules.
     ///
     /// Returns `Ok(())`, an output error, or [`ErrorKind::InvalidInput`] if no
     /// region is open or its contexts remain unclosed. Any error permanently fails
-    /// the dumper; no rollback or further replay is attempted.
+    /// the dumper; output already written cannot be undone.
     pub fn end_no_break_region(&mut self) -> Result<()> {
         self.ensure_active()?;
         let result = (|| {
@@ -693,7 +733,7 @@ impl<T: Write> Dumper<T> {
 
     /// Permanently fail the dumper after an error while producing a region.
     ///
-    /// Pending output will not be replayed and subsequent operations return an
+    /// Pending output is discarded and subsequent operations return an
     /// error. This does not undo bytes already written. Returns nothing.
     pub fn abort_no_break_region(&mut self) {
         self.state = DumperState::Failed;
@@ -706,6 +746,9 @@ impl<T: Write> Dumper<T> {
     /// Dump a sequence with a delimiter between adjacent items.
     ///
     /// An empty sequence emits nothing. See the [module example](self).
+    /// Uses [`BreakPolicy::Inherit`]: the join inserts no breaks of its own;
+    /// items and delimiters follow surrounding wrapping rules. Iterators and
+    /// callbacks run once when the join is dumped.
     ///
     /// # Arguments
     ///
@@ -716,22 +759,129 @@ impl<T: Write> Dumper<T> {
     ///
     /// Returns `Ok(())` on success. Stops at the first error from an item or
     /// delimiter. Also returns an error if the dumper is finalized or has failed.
+    /// An item or delimiter error permanently fails the dumper.
     pub fn join<I, D>(&mut self, items: I, delimiter: D) -> Result<()>
     where
         I: IntoIterator,
         I::Item: Dump,
         D: Dump,
     {
-        self.ensure_active()?;
-        let mut iterator = items.into_iter();
-        if let Some(first) = iterator.next() {
-            first.dump(self)?;
-            for i in iterator {
-                delimiter.dump(self)?;
-                i.dump(self)?;
+        self.join_with_breaks(items, delimiter, BreakPolicy::Inherit)
+    }
+
+    /// Dump a sequence with configurable breaks between adjacent items.
+    ///
+    /// # Arguments
+    /// * `items` — Items consumed once, in order.
+    /// * `delimiter` — Dumped once for each gap, retaining its own explicit breaks.
+    /// * `breaks` — Inherit surrounding wrapping, always break, or break as needed.
+    ///
+    /// Explicit policies keep delimiters attached to preceding items, even if
+    /// they overflow. AsNeeded breaks when the next item's first line will not
+    /// fit, including its prologue and epilogue content. The first item starts here.
+    /// Contexts and regions must balance within each item or delimiter; target
+    /// switching and indentation changes are not allowed inside a join.
+    /// Violations permanently fail the dumper; output already written cannot be undone.
+    ///
+    /// Returns `Ok(())`, or an item, delimiter, or output error. Errors are
+    /// terminal, and the original error is preserved.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dumpany::core::{BreakPolicy, Dumper, DumperConfig, Text};
+    /// let mut out = Dumper::new(Vec::new(), DumperConfig::default())?;
+    /// out.join_with_breaks([Text("one"), Text("two")], Text(", "), BreakPolicy::Always)?;
+    /// assert_eq!(out.into_inner().unwrap(), b"one,\ntwo\n");
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    pub fn join_with_breaks<I, D>(
+        &mut self,
+        items: I,
+        delimiter: D,
+        breaks: BreakPolicy,
+    ) -> Result<()>
+    where
+        I: IntoIterator,
+        I::Item: Dump,
+        D: Dump,
+    {
+        self.begin_join(breaks)?;
+        let result = (|| {
+            let mut iterator = items.into_iter();
+            if let Some(first) = iterator.next() {
+                first.dump(self)?;
+                for item in iterator {
+                    self.next_join_part()?;
+                    delimiter.dump(self)?;
+                    self.next_join_part()?;
+                    item.dump(self)?;
+                }
             }
+            self.end_join()
+        })();
+        if result.is_err() {
+            self.abort_join();
         }
+        result
+    }
+
+    /// Begin a join with the `breaks` policy; prefer [`Self::join_with_breaks`].
+    /// Returns an error if finalized or failed. Pair with [`Self::end_join`].
+    pub fn begin_join(&mut self, breaks: BreakPolicy) -> Result<()> {
+        self.ensure_active()?;
+        if self.join_depth == 0 {
+            self.join_owns_recorder = self.recorder.is_none();
+        }
+        self.join_depth += 1;
+        let recorder = self.recorder.get_or_insert_with(Recorder::default);
+        recorder.begin_join(breaks);
         Ok(())
+    }
+
+    /// Finish the current item or delimiter and start the next alternating part.
+    /// Returns `Ok(())`, or an error if the dumper is finalized or has failed.
+    pub fn next_join_part(&mut self) -> Result<()> {
+        self.ensure_active()?;
+        self.recorder
+            .get_or_insert_with(Recorder::default)
+            .join_part();
+        Ok(())
+    }
+
+    /// Finish a join and continue with the enclosing output.
+    /// Returns an error if parts are unbalanced or end with a delimiter, or output
+    /// fails. Any error permanently fails the dumper.
+    pub fn end_join(&mut self) -> Result<()> {
+        self.ensure_active()?;
+        let result = (|| {
+            let root = if self.join_depth == 0 {
+                self.recorder.is_none()
+            } else {
+                self.join_depth -= 1;
+                self.join_depth == 0 && self.join_owns_recorder
+            };
+            self.recorder
+                .get_or_insert_with(Recorder::default)
+                .end_join();
+            if root {
+                let recording = self.recorder.take().expect("join recorder exists");
+                let prologues = std::mem::take(&mut self.prologues);
+                let epilogues = std::mem::take(&mut self.epilogues);
+                self.names.clear();
+                self.dump_recorder(&prologues, &epilogues, &recording)?;
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.abort_join();
+        }
+        result
+    }
+
+    /// Permanently fail the dumper after a join callback error and discard pending output.
+    pub fn abort_join(&mut self) {
+        self.state = DumperState::Failed;
     }
 
     /// Dump a sequence in order without adding separators.
@@ -825,6 +975,12 @@ impl<T: Write> Dumper<T> {
     /// is finalized or has failed.
     pub fn new_line(&mut self, change_indentation: Option<Indentation>) -> Result<()> {
         self.ensure_active()?;
+        if change_indentation.is_some() && self.join_replay_depth > 0 {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "indentation changes not supported inside joins",
+            ));
+        }
         if let Some(recorder) = &mut self.recorder {
             return recorder.new_line(change_indentation);
         }
@@ -922,7 +1078,7 @@ impl<T: Write> Dumper<T> {
             }
             return Err(Error::new(ErrorKind::InvalidInput, "no context is open"));
         }
-        if self.selected_target.is_none() && !self.in_no_break_region()
+        if self.selected_target.is_none() && !self.in_no_break_region() && self.join_depth == 0
             // the root context is beeing closed
             && self
                 .recorder
@@ -955,6 +1111,7 @@ impl<T: Write> Dumper<T> {
                 recorder.close_context(new_line)?;
                 self.selected_target.is_none()
                     && self.region_capture.is_none()
+                    && self.join_depth == 0
                     && recorder.context_depth() == 0
             }
             None => false,
@@ -975,7 +1132,7 @@ impl<T: Write> Dumper<T> {
         epilogues: &HashMap<String, Recorder>,
         context: crate::context::Context<'_>,
         bytes: &mut &[u8],
-        regions: &[Recorder],
+        recording: &Recorder,
     ) -> Result<()> {
         self.ensure_line_space(1)?;
         self.set_left_margin();
@@ -1000,7 +1157,7 @@ impl<T: Write> Dumper<T> {
         if let Some(prologue) = context.name.and_then(|name| prologues.get(name)) {
             self.dump_recorder(prologues, epilogues, prologue)?;
         }
-        let new_line = self.dump_content(prologues, epilogues, bytes, true, regions)?;
+        let new_line = self.dump_content(prologues, epilogues, bytes, true, recording)?;
         if let Some(epilogue) = context.name.and_then(|name| epilogues.get(name)) {
             self.dump_recorder(prologues, epilogues, epilogue)?;
         }
@@ -1021,7 +1178,7 @@ impl<T: Write> Dumper<T> {
         recorder: &Recorder,
     ) -> Result<()> {
         let mut bytes = recorder.encoded_content();
-        self.dump_content(prologues, epilogues, &mut bytes, false, recorder.regions())
+        self.dump_content(prologues, epilogues, &mut bytes, false, recorder)
             .map(|_| ())
     }
 
@@ -1031,12 +1188,28 @@ impl<T: Write> Dumper<T> {
         epilogues: &HashMap<String, Recorder>,
         bytes: &mut &[u8],
         in_context: bool,
-        regions: &[Recorder],
+        recording: &Recorder,
     ) -> Result<bool> {
         while !bytes.is_empty() {
             match Operation::from_bytes(bytes)? {
+                Operation::Join(policy) => {
+                    self.join_replay_depth += 1;
+                    let result = self.dump_join(prologues, epilogues, policy, bytes, recording);
+                    self.join_replay_depth -= 1;
+                    if result.is_err() {
+                        self.state = DumperState::Failed;
+                    }
+                    result?;
+                }
+                Operation::JoinPart | Operation::JoinEnd => {
+                    self.state = DumperState::Failed;
+                    return Err(Error::new(
+                        ErrorKind::InvalidData,
+                        "unexpected join boundary",
+                    ));
+                }
                 Operation::NoBreakRegion(index) => {
-                    let region = regions.get(index).ok_or_else(|| {
+                    let region = recording.regions().get(index).ok_or_else(|| {
                         Error::new(ErrorKind::InvalidData, "unknown no-break region")
                     })?;
                     self.dump_no_break_region(prologues, epilogues, region)?
@@ -1044,12 +1217,18 @@ impl<T: Write> Dumper<T> {
                 Operation::Text(text) => self.dump_text(text.0)?,
                 Operation::NoBreak { text, length } => self.dump_no_break(text, length)?,
                 Operation::NewLine(line) => self.new_line(line.0)?,
+                Operation::Indentation(_) if self.join_replay_depth > 0 => {
+                    return Err(Error::new(
+                        ErrorKind::InvalidInput,
+                        "indentation changes are forbidden inside joins",
+                    ));
+                }
                 Operation::Indentation(Increment(amount)) => self.indent += amount as usize,
                 Operation::Indentation(Decrement(amount)) => {
                     self.indent = self.indent.saturating_sub(amount as usize)
                 }
                 Operation::OpenContext(context) => {
-                    self.dump_context(prologues, epilogues, context, bytes, regions)?;
+                    self.dump_context(prologues, epilogues, context, bytes, recording)?;
                 }
                 Operation::CloseContext(close) if in_context => {
                     return Ok(close.0);
@@ -1067,6 +1246,97 @@ impl<T: Write> Dumper<T> {
         } else {
             Ok(false)
         }
+    }
+
+    // Explicit join policies suppress normal wrapping while emitting each part;
+    // only dump_join inserts their boundary breaks, even inside a no-break region.
+    fn dump_join(
+        &mut self,
+        prologues: &HashMap<String, Recorder>,
+        epilogues: &HashMap<String, Recorder>,
+        policy: BreakPolicy,
+        bytes: &mut &[u8],
+        recording: &Recorder,
+    ) -> Result<()> {
+        let mut index = 0;
+        loop {
+            let (part, end) = crate::operations::join_part(bytes)?;
+            if end && index % 2 == 1 {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "join ends with a delimiter",
+                ));
+            }
+            if policy == BreakPolicy::Inherit {
+                self.dump_content(prologues, epilogues, &mut &part[..], false, recording)?;
+            } else {
+                if index > 0
+                    && index % 2 == 0
+                    && policy == BreakPolicy::Always
+                    && !self.current_line.trim().is_empty()
+                {
+                    self.flush_line()?;
+                }
+                let mut text = self.render_join_part(prologues, epilogues, part, recording)?;
+                let first = text
+                    .split(&self.config.new_line)
+                    .next()
+                    .unwrap_or("")
+                    .chars()
+                    .count();
+                if index > 0
+                    && index % 2 == 0
+                    && policy == BreakPolicy::AsNeeded
+                    && first > 0
+                    && !self.current_line.trim().is_empty()
+                    && self.current_line.chars().count() + first > self.config.line_width
+                {
+                    self.flush_line()?;
+                    // Only recorded operations are replayed; callbacks are never invoked here.
+                    text = self.render_join_part(prologues, epilogues, part, recording)?;
+                }
+                self.no_break_depth += 1;
+                let result = self.dump_text(&text);
+                self.no_break_depth -= 1;
+                result?;
+            }
+            if end {
+                return Ok(());
+            }
+            index += 1;
+        }
+    }
+
+    // A virtual prefix gives nested joins and local contexts the actual starting
+    // column. Continuations use the enclosing margin, not the prefix length.
+    fn render_join_part(
+        &self,
+        prologues: &HashMap<String, Recorder>,
+        epilogues: &HashMap<String, Recorder>,
+        part: &[u8],
+        recording: &Recorder,
+    ) -> Result<String> {
+        let margin = self
+            .left_margin
+            .last()
+            .copied()
+            .unwrap_or(self.indent * self.config.indent_width);
+        let offset = self.current_line.chars().count().saturating_sub(margin);
+        let mut temp = Dumper::new(
+            Vec::new(),
+            DumperConfig {
+                new_line: self.config.new_line.clone(),
+                indent_width: self.config.indent_width,
+                line_width: self.config.line_width.saturating_sub(margin).max(1),
+            },
+        )?;
+        temp.no_break_depth = 1;
+        temp.join_replay_depth = 1;
+        temp.current_line = "x".repeat(offset);
+        temp.dump_content(prologues, epilogues, &mut &part[..], false, recording)?;
+        let mut text = String::from_utf8(temp.writer).expect("dumper emits UTF-8");
+        text.push_str(&temp.current_line);
+        Ok(text[offset..].to_owned())
     }
 
     // Continue at the current position and replay the region once, without measuring it.

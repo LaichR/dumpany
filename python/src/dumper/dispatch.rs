@@ -144,25 +144,42 @@ fn dump_join(
 ) -> PyResult<()> {
     let py = value.py();
     // Release the operation borrow before executing Python callbacks.
-    let (delimiter, iterable) = {
+    let (delimiter, iterable, breaks) = {
         let operation = value.borrow();
         let (delimiter, iterable) = operation
             .contents
             .as_ref()
             .ok_or_else(|| PyValueError::new_err("Join has been cleared"))?;
-        (delimiter.clone_ref(py), iterable.clone_ref(py))
+        (
+            delimiter.clone_ref(py),
+            iterable.clone_ref(py),
+            operation.breaks,
+        )
     };
     with_active(iterable.bind(py), active, |active| {
-        let mut items = iterable.bind(py).try_iter()?;
-        if let Some(first) = items.next() {
-            dispatch(dumper, &first?, active)?;
-            for item in items {
-                let item = item?;
-                dispatch(dumper, delimiter.bind(py), active)?;
-                dispatch(dumper, &item, active)?;
+        dumper.try_borrow_mut()?.inner.begin_join(breaks.into())?;
+        let result = (|| {
+            let mut items = iterable.bind(py).try_iter()?;
+            if let Some(first) = items.next() {
+                dispatch(dumper, &first?, active)?;
+                for item in items {
+                    let item = item?;
+                    dumper.try_borrow_mut()?.inner.next_join_part()?;
+                    dispatch(dumper, delimiter.bind(py), active)?;
+                    dumper.try_borrow_mut()?.inner.next_join_part()?;
+                    dispatch(dumper, &item, active)?;
+                }
             }
+            dumper
+                .try_borrow_mut()?
+                .inner
+                .end_join()
+                .map_err(PyErr::from)
+        })();
+        if result.is_err() {
+            dumper.try_borrow_mut()?.inner.abort_join();
         }
-        Ok(())
+        result
     })
 }
 

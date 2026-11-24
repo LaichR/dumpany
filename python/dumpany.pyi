@@ -2,8 +2,10 @@
 # ruff: noqa: E501, F401, F403, F405
 
 import builtins
+import enum
 import typing
 __all__ = [
+    "BreakPolicy",
     "Context",
     "Dumper",
     "Epilogue",
@@ -149,7 +151,7 @@ class Join:
     Each item and the delimiter are dumped recursively, as with Dumper.dump().
     Empty iterables emit nothing; no leading or trailing delimiter is emitted.
     """
-    def __new__(cls, delimiter: typing.Any, iterable: typing.Any) -> Join:
+    def __new__(cls, delimiter: typing.Any, iterable: typing.Any, *, breaks: BreakPolicy = BreakPolicy.Inherit) -> Join:
         r"""
         Create a join with a delimiter between adjacent items of iterable.
         
@@ -159,6 +161,18 @@ class Join:
         :param delimiter: Any value accepted by Dumper.dump(), emitted between
             adjacent items but never before the first or after the last item.
         :param iterable: An iterable whose items are dumped recursively.
+        :param breaks: BreakPolicy.Inherit (default) inserts no breaks itself;
+            surrounding wrapping rules apply. Always breaks after each delimiter.
+            AsNeeded breaks there when the next item's first line does not fit,
+            even inside NoBreakRegion. Explicit policies keep complete items and
+            delimiters intact except for their own explicit newlines. Delimiters
+            stay with preceding items, even if this exceeds the width. The first
+            item starts at the current position.
+        
+        Contexts and regions must balance inside each item or delimiter. Switching
+        section targets or changing indentation inside a join is not
+        allowed. Callbacks run once.
+        Errors fail the dumper without undoing any output already written.
         """
 
 @typing.final
@@ -208,7 +222,7 @@ class NoBreakRegion:
     newlines, including context closing breaks. Contexts must close inside the
     region; target switching and finalization inside a region are not allowed.
     An error while producing a region permanently fails the dumper. Pending
-    output is not replayed; bytes already written cannot be undone.
+    output is discarded; bytes already written cannot be undone.
     """
     def __new__(cls, content: typing.Any) -> NoBreakRegion:
         r"""
@@ -240,4 +254,23 @@ class Prologue:
         :param content: Text or dump operations to place before that context's
             main content. Consumed only when this operation is dumped.
         """
+
+@typing.final
+class BreakPolicy(enum.Enum):
+    r"""
+    Control explicit line breaks inserted between Join items.
+    """
+    Inherit = ...
+    r"""
+    Insert no breaks of its own; items and delimiters follow surrounding wrapping rules.
+    """
+    Always = ...
+    r"""
+    Break after every delimiter unless already at the start of a line.
+    """
+    AsNeeded = ...
+    r"""
+    Break after a delimiter if the next item's first explicit line does not fit.
+    Complete items and delimiters keep their own explicit breaks but do not wrap automatically.
+    """
 
