@@ -10,7 +10,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 /// newlines, including context closing breaks. Contexts must close inside the
 /// region; target switching and finalization inside a region are not allowed.
 /// An error while producing a region permanently fails the dumper. Pending
-/// output is not replayed; bytes already written cannot be undone.
+/// output is discarded; bytes already written cannot be undone.
 #[pyclass(module = "dumpany")]
 pub struct NoBreakRegion {
     pub(crate) content: Option<Py<PyAny>>,

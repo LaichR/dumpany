@@ -15,6 +15,7 @@
   - Optional inline context closing with `new_line=False`; indentation changes always end the line.
   - `NoBreakRegion` for composed output and iterators, continuing at the current position without automatic wrapping and preserving explicit line breaks.
   - Joining content with delimiters.
+  - Configurable joins with `BreakPolicy.Inherit`, `Always`, and `AsNeeded`, including explicit breaks inside no-break regions.
   - Explicit output finalization without closing the supplied stream.
   - Optional finalization without a trailing newline through `dump_all(new_line=False)`.
   - Python user documentation and type stubs.

@@ -9,9 +9,6 @@ indentation, and alignment.
 - `context`: aligned text blocks with optional prefixes and names.
 - `dump_tuple`: composition of heterogeneous dump operations using tuples.
 
-The internal `operations` and `recorder` modules support recording and rendering
-and are not part of the public API.
-
 Implementation and unit tests are in `src/`; public API integration tests are in
 `tests/`. Formatting fixtures are in `test-data/`.
 
