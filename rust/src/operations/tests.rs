@@ -1,6 +1,49 @@
 use super::*;
 
 #[test]
+fn join_marker_retains_its_policy_and_rejects_truncation() -> Result<()> {
+    let mut buffer = BytesMut::new();
+    put_join(&mut buffer, crate::core::BreakPolicy::AsNeeded);
+    let mut input = buffer.as_ref();
+    assert!(matches!(
+        Operation::from_bytes(&mut input)?,
+        Operation::Join(crate::core::BreakPolicy::AsNeeded)
+    ));
+    assert!(input.is_empty());
+    for end in 0..buffer.len() {
+        let original = &buffer[..end];
+        let mut input = original;
+        assert_eq!(
+            Operation::from_bytes(&mut input).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+        assert_eq!(input, original);
+    }
+    Ok(())
+}
+
+#[test]
+fn inline_parts_skip_nested_join_boundaries() -> Result<()> {
+    let mut buffer = BytesMut::new();
+    put_join(&mut buffer, crate::core::BreakPolicy::Always);
+    put_join_part(&mut buffer);
+    put_join_end(&mut buffer);
+    let nested_length = buffer.len();
+    put_join_part(&mut buffer);
+    put_join_end(&mut buffer);
+    let mut input = buffer.as_ref();
+    let (part, end) = join_part(&mut input)?;
+    assert_eq!(part, &buffer[..nested_length]);
+    assert!(!end);
+    let (part, end) = join_part(&mut input)?;
+    assert!(part.is_empty());
+    assert!(end);
+    assert!(input.is_empty());
+    assert!(join_part(&mut &buffer[..nested_length]).is_err());
+    Ok(())
+}
+
+#[test]
 fn no_break_region_preserves_metadata_index_and_rejects_truncation() -> Result<()> {
     let mut buffer = BytesMut::new();
     put_no_break_region(&mut buffer, 42);

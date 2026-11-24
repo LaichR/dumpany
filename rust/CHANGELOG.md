@@ -13,5 +13,6 @@
   - Optional inline context closing; indentation changes always end the line.
   - Nested no-break regions that continue at the current position, suppressing automatic wrapping while preserving explicit line breaks.
   - Composition through iterators, joins, tuples, and the `Dump` trait.
+  - Configurable joins with `Inherit`, `Always`, and `AsNeeded` break policies.
   - Explicit output finalization.
   - Optional finalization without a trailing newline for inline text fragments.

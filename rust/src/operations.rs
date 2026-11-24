@@ -61,10 +61,17 @@ pub(crate) trait FromBytes<'a>: Sized {
 /// Text and context descriptions borrow their strings from the input.
 #[derive(Debug)]
 pub(crate) enum Operation<'data> {
+    /// Begin an inline join; alternating item/delimiter parts end at JoinEnd.
+    Join(crate::core::BreakPolicy),
+    JoinPart,
+    JoinEnd,
     /// Render encoded operations without automatic line breaks.
     NoBreakRegion(usize),
     /// Append indivisible text.
-    NoBreak { text: &'data str, length: u16 },
+    NoBreak {
+        text: &'data str,
+        length: u16,
+    },
     /// Append the supplied text.
     Text(Text<&'data str>),
     /// Insert a line break and optionally change indentation.
@@ -84,6 +91,25 @@ pub(crate) const OPEN_CONTEXT: u8 = 3;
 const CLOSE_CONTEXT: u8 = 4;
 const NO_BREAK: u8 = 5;
 const NO_BREAK_REGION: u8 = 6;
+const JOIN: u8 = 7;
+const JOIN_PART: u8 = 8;
+const JOIN_END: u8 = 9;
+
+pub(crate) fn put_join(out: &mut BytesMut, policy: crate::core::BreakPolicy) {
+    out.put_u8(JOIN);
+    out.put_u8(match policy {
+        crate::core::BreakPolicy::Inherit => 0,
+        crate::core::BreakPolicy::Always => 1,
+        crate::core::BreakPolicy::AsNeeded => 2,
+    });
+}
+
+pub(crate) fn put_join_part(out: &mut BytesMut) {
+    out.put_u8(JOIN_PART);
+}
+pub(crate) fn put_join_end(out: &mut BytesMut) {
+    out.put_u8(JOIN_END);
+}
 
 pub(crate) fn put_no_break_region(out: &mut BytesMut, index: usize) {
     out.put_u8(NO_BREAK_REGION);
@@ -92,6 +118,24 @@ pub(crate) fn put_no_break_region(out: &mut BytesMut, index: usize) {
 
 fn invalid(message: &str) -> Error {
     Error::new(ErrorKind::InvalidData, message)
+}
+
+/// Borrow the next inline part, skipping boundaries belonging to nested joins.
+pub(crate) fn join_part<'a>(input: &mut &'a [u8]) -> Result<(&'a [u8], bool)> {
+    let start = *input;
+    let mut depth = 0usize;
+    loop {
+        let before = input.len();
+        match Operation::from_bytes(input)? {
+            Operation::Join(_) => depth += 1,
+            Operation::JoinEnd if depth > 0 => depth -= 1,
+            Operation::JoinEnd => return Ok((&start[..start.len() - before], true)),
+            Operation::JoinPart if depth == 0 => {
+                return Ok((&start[..start.len() - before], false));
+            }
+            _ => {}
+        }
+    }
 }
 
 fn take<'a>(input: &mut &'a [u8], len: usize) -> Result<&'a [u8]> {
@@ -222,6 +266,14 @@ impl<'a> FromBytes<'a> for Operation<'a> {
     fn from_bytes(input: &mut &'a [u8]) -> Result<Self> {
         let mut remaining = *input;
         let operation = match byte(&mut remaining)? {
+            JOIN => Self::Join(match byte(&mut remaining)? {
+                0 => crate::core::BreakPolicy::Inherit,
+                1 => crate::core::BreakPolicy::Always,
+                2 => crate::core::BreakPolicy::AsNeeded,
+                _ => return Err(invalid("invalid join policy")),
+            }),
+            JOIN_PART => Self::JoinPart,
+            JOIN_END => Self::JoinEnd,
             NO_BREAK_REGION => {
                 let index = u64::from_le_bytes(take(&mut remaining, 8)?.try_into().unwrap());
                 Self::NoBreakRegion(

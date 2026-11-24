@@ -4,13 +4,13 @@ use std::fmt::Display;
 use std::io::Result;
 
 use crate::context::Context;
-use crate::core::{Indentation, NewLine, NoBreak, Text};
+use crate::core::{BreakPolicy, Indentation, NewLine, NoBreak, Text};
 use crate::operations::{CloseContext, ToBytes};
 
 /// Buffer body, section, or region operations for later replay.
 #[derive(Default)]
 pub(crate) struct Recorder {
-    /// Operations in output order; region markers index the child recordings.
+    /// Operations in output order, including inline join boundaries.
     encoded_content: BytesMut,
     /// Number of currently open contexts in this recording.
     context_depth: usize,
@@ -20,6 +20,15 @@ pub(crate) struct Recorder {
 
 // Recording only captures operations; all layout decisions belong to replay.
 impl Recorder {
+    pub fn begin_join(&mut self, breaks: BreakPolicy) {
+        crate::operations::put_join(&mut self.encoded_content, breaks);
+    }
+    pub fn join_part(&mut self) {
+        crate::operations::put_join_part(&mut self.encoded_content);
+    }
+    pub fn end_join(&mut self) {
+        crate::operations::put_join_end(&mut self.encoded_content);
+    }
     /// Return child recordings indexed by the encoded region markers.
     pub fn regions(&self) -> &[Recorder] {
         &self.regions
