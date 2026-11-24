@@ -143,8 +143,9 @@ pub struct Dumper<T: Write> {
     selected_target: Option<SelectedTarget>,
     // Recording state: one saved parent for the outer region, never a recorder stack.
     region_capture: Option<RegionCapture>,
-    // Only routing state: whether each join created the root recorder.
-    join_captures: Vec<bool>,
+    // Only routing state: nested joins share the outermost join's recorder.
+    join_depth: usize,
+    join_owns_recorder: bool,
     // Includes late sections replayed inside an item.
     join_replay_depth: usize,
     // Suppress automatic line wrapping while an eventually nested no_break section is emitted.
@@ -323,7 +324,8 @@ impl<T: Write> Dumper<T> {
             left_margin: Vec::new(),
             selected_target: None,
             region_capture: None,
-            join_captures: Vec::new(),
+            join_depth: 0,
+            join_owns_recorder: false,
             join_replay_depth: 0,
             no_break_depth: 0,
         })
@@ -415,7 +417,7 @@ impl<T: Write> Dumper<T> {
             return Ok(());
         }
         self.ensure_active()?;
-        if !self.join_captures.is_empty() {
+        if self.join_depth > 0 {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
                 "cannot finalize inside a join",
@@ -467,7 +469,7 @@ impl<T: Write> Dumper<T> {
     /// selected. Also returns an error if the dumper is finalized or has failed.
     pub fn select_target(&mut self, target: Target<'_>) -> Result<()> {
         self.ensure_active()?;
-        if !self.join_captures.is_empty() {
+        if self.join_depth > 0 {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
                 "cannot switch targets inside a join",
@@ -525,7 +527,7 @@ impl<T: Write> Dumper<T> {
     /// Returns `Ok(())`, or an error if the dumper is finalized or has failed.
     pub fn select_main(&mut self) -> Result<()> {
         self.ensure_active()?;
-        if !self.join_captures.is_empty() {
+        if self.join_depth > 0 {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
                 "cannot switch targets inside a join",
@@ -828,9 +830,11 @@ impl<T: Write> Dumper<T> {
     /// Returns an error if finalized or failed. Pair with [`Self::end_join`].
     pub fn begin_join(&mut self, breaks: BreakPolicy) -> Result<()> {
         self.ensure_active()?;
-        let root = self.recorder.is_none();
+        if self.join_depth == 0 {
+            self.join_owns_recorder = self.recorder.is_none();
+        }
+        self.join_depth += 1;
         let recorder = self.recorder.get_or_insert_with(Recorder::default);
-        self.join_captures.push(root);
         recorder.begin_join(breaks);
         Ok(())
     }
@@ -851,7 +855,12 @@ impl<T: Write> Dumper<T> {
     pub fn end_join(&mut self) -> Result<()> {
         self.ensure_active()?;
         let result = (|| {
-            let root = self.join_captures.pop().unwrap_or(self.recorder.is_none());
+            let root = if self.join_depth == 0 {
+                self.recorder.is_none()
+            } else {
+                self.join_depth -= 1;
+                self.join_depth == 0 && self.join_owns_recorder
+            };
             self.recorder
                 .get_or_insert_with(Recorder::default)
                 .end_join();
@@ -1069,7 +1078,7 @@ impl<T: Write> Dumper<T> {
             }
             return Err(Error::new(ErrorKind::InvalidInput, "no context is open"));
         }
-        if self.selected_target.is_none() && !self.in_no_break_region() && self.join_captures.is_empty()
+        if self.selected_target.is_none() && !self.in_no_break_region() && self.join_depth == 0
             // the root context is beeing closed
             && self
                 .recorder
@@ -1102,7 +1111,7 @@ impl<T: Write> Dumper<T> {
                 recorder.close_context(new_line)?;
                 self.selected_target.is_none()
                     && self.region_capture.is_none()
-                    && self.join_captures.is_empty()
+                    && self.join_depth == 0
                     && recorder.context_depth() == 0
             }
             None => false,
