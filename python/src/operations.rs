@@ -1,3 +1,4 @@
+mod break_policy;
 mod context;
 mod join;
 mod new_line;
@@ -5,6 +6,7 @@ mod no_break;
 mod no_break_region;
 mod prologue_epilogue;
 
+pub(crate) use break_policy::BreakPolicy;
 pub(crate) use context::PyContext;
 pub(crate) use join::Join;
 pub(crate) use new_line::NewLine;

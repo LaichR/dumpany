@@ -54,3 +54,32 @@ How the pieces fit together
 
 See :doc:`examples` for separated content and a complete YAML example, or
 :doc:`api` for signatures and argument descriptions.
+
+Choosing join breaks
+--------------------
+
+Use ``Join(..., breaks=...)`` to choose safe break positions between complete
+items, including inside a ``NoBreakRegion``:
+
+.. code-block:: python
+
+   from dumpany import BreakPolicy, Join, NoBreakRegion
+
+   dumper.dump(NoBreakRegion([
+       "call(",
+       Join(", ", arguments, breaks=BreakPolicy.AsNeeded),
+       ")",
+   ]))
+
+``Inherit`` is the default: the join inserts no breaks of its own, and items and
+delimiters follow the surrounding wrapping rules. ``Always`` breaks after each
+delimiter; ``AsNeeded`` does so when the next item's first line will not fit.
+The first item starts at the current position. Explicit policies keep items and
+delimiters intact except for their own explicit newlines. A delimiter stays
+attached to the preceding item even if that exceeds the width.
+
+Prologues and epilogues count toward an item's width, even when supplied later.
+Iterators and callbacks run once when the join is dumped. Contexts and regions
+must balance within each item or delimiter; target switching and indentation
+changes are not allowed there. Errors fail the dumper without undoing output
+already written.

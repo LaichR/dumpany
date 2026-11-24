@@ -53,7 +53,9 @@ def test_invalid_iterable_and_iteration_error(render):
     with pytest.raises(ValueError) as caught:
         dumper.dump(Join("unwanted separator", items()))
     assert caught.value is failure
-    assert stream.getvalue() == "first\n"
+    assert stream.getvalue() == ""
+    with pytest.raises(OSError, match="failed"):
+        dumper.dump_all()
 
 
 def test_join_cycles_and_depth(render):

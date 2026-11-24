@@ -12,6 +12,8 @@ pyo3_stub_gen::module_variable!("dumpany", "__version__", String);
 mod dumpany {
     #[pymodule_export]
     use crate::dumper::PyDumper;
+    #[pymodule_export]
+    use crate::operations::BreakPolicy;
 
     #[pymodule_export]
     use crate::operations::NewLine;
