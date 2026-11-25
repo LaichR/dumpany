@@ -7,15 +7,44 @@ use crate::context::Context;
 use crate::core::{BreakPolicy, Indentation, NewLine, NoBreak, Text};
 use crate::operations::{CloseContext, ToBytes};
 
+/// Track when a nested operation must emit the shared recorder.
+#[derive(Default)]
+pub(crate) struct RecordingState {
+    depth: usize,
+    owns_recorder: bool,
+}
+
+impl RecordingState {
+    /// Enter a scope, claiming the recorder only if none already exists.
+    pub fn begin(&mut self, recorder_exists: bool) {
+        if !self.is_active() {
+            self.owns_recorder = !recorder_exists;
+        }
+        self.depth += 1;
+    }
+
+    /// Leave a scope and report whether its recorder should now be emitted.
+    /// Unmatched endings are left for replay to reject.
+    pub fn end(&mut self) -> bool {
+        if !self.is_active() {
+            return false;
+        }
+        self.depth -= 1;
+        self.depth == 0 && std::mem::take(&mut self.owns_recorder)
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.depth > 0
+    }
+}
+
 /// Buffer body, section, or region operations for later replay.
 #[derive(Default)]
 pub(crate) struct Recorder {
-    /// Operations in output order, including inline join boundaries.
+    /// Operations in output order, including inline join and region boundaries.
     encoded_content: BytesMut,
     /// Number of currently open contexts in this recording.
     context_depth: usize,
-    /// Completed region recordings, retained until the parent is replayed.
-    regions: Vec<Recorder>,
 }
 
 // Recording only captures operations; all layout decisions belong to replay.
@@ -29,20 +58,17 @@ impl Recorder {
     pub fn end_join(&mut self) {
         crate::operations::put_join_end(&mut self.encoded_content);
     }
-    /// Return child recordings indexed by the encoded region markers.
-    pub fn regions(&self) -> &[Recorder] {
-        &self.regions
-    }
-
     /// Return whether this recording has a context available to close.
     pub fn can_close_context(&self) -> bool {
         self.context_depth > 0
     }
 
-    /// Attach a completed `region`, retaining its content until replay.
-    pub fn no_break_region(&mut self, region: Recorder) {
-        crate::operations::put_no_break_region(&mut self.encoded_content, self.regions.len());
-        self.regions.push(region);
+    pub fn begin_no_break_region(&mut self) {
+        crate::operations::put_no_break_region(&mut self.encoded_content);
+    }
+
+    pub fn end_no_break_region(&mut self) {
+        crate::operations::put_end_no_break_region(&mut self.encoded_content);
     }
 
     /// Record indivisible `text`; oversized text returns InvalidInput.
@@ -92,7 +118,7 @@ impl Recorder {
         self.context_depth
     }
 
-    /// Borrow the encoded operations; child recordings remain owned here.
+    /// Borrow the encoded operations.
     pub fn encoded_content(&self) -> &[u8] {
         &self.encoded_content
     }

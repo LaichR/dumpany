@@ -1,5 +1,5 @@
 use dumpany::context::Context;
-use dumpany::core::{Dump, Dumper, DumperConfig, NoBreakRegion, Target, Text};
+use dumpany::core::{BreakPolicy, Dump, Dumper, DumperConfig, NoBreakRegion, Target, Text};
 use std::io::{Error, ErrorKind, Result};
 
 fn dumper(width: usize) -> Result<Dumper<Vec<u8>>> {
@@ -150,11 +150,92 @@ fn unmatched_region_boundaries_permanently_fail_the_dumper() -> Result<()> {
 fn a_region_cannot_close_an_enclosing_context() -> Result<()> {
     let mut out = dumper(30)?;
     out.open_context(None, Some("outer"))?;
-    let error = out
-        .no_break_region(|out| out.close_context(None, true))
-        .unwrap_err();
+    out.no_break_region(|out| out.close_context(None, true))?;
+    let error = out.dump_all().unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
     assert!(out.dump_all().is_err());
+    Ok(())
+}
+
+#[test]
+fn contexts_cannot_cross_a_nested_region_boundary() -> Result<()> {
+    for close_inside in [false, true] {
+        let mut out = dumper(12)?;
+        out.begin_no_break_region()?;
+        if close_inside {
+            out.open_context(None, None)?;
+        }
+        out.begin_no_break_region()?;
+        if close_inside {
+            out.close_context(None, false)?;
+        } else {
+            out.open_context(None, None)?;
+        }
+        out.end_no_break_region()?;
+        if !close_inside {
+            out.close_context(None, false)?;
+        }
+        assert!(out.end_no_break_region().is_err());
+        assert!(out.dump_all().is_err());
+    }
+    Ok(())
+}
+
+#[test]
+fn joins_cannot_cross_region_boundaries() -> Result<()> {
+    for policy in [
+        BreakPolicy::Inherit,
+        BreakPolicy::Always,
+        BreakPolicy::AsNeeded,
+    ] {
+        for close_inside in [false, true] {
+            let mut out = dumper(12)?;
+            out.begin_no_break_region()?;
+            if close_inside {
+                out.begin_join(policy)?;
+            }
+            out.begin_no_break_region()?;
+            if close_inside {
+                out.end_join()?;
+            } else {
+                out.begin_join(policy)?;
+            }
+            out.end_no_break_region()?;
+            if !close_inside {
+                out.end_join()?;
+            }
+            assert!(out.end_no_break_region().is_err());
+            assert!(out.dump_all().is_err());
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn regions_inside_join_items_are_inline_and_nest_without_toggling() -> Result<()> {
+    for policy in [
+        BreakPolicy::Inherit,
+        BreakPolicy::Always,
+        BreakPolicy::AsNeeded,
+    ] {
+        let mut out = dumper(8)?;
+        out.begin_join(policy)?;
+        out.no_break_region(|out| {
+            out.text("a ")?;
+            out.no_break_region(|out| out.text("long item"))
+        })?;
+        out.next_join_part()?;
+        out.text(", ")?;
+        out.next_join_part()?;
+        out.no_break_region(|out| out.text("next item"))?;
+        out.end_join()?;
+        let expected = if policy == BreakPolicy::Inherit {
+            "a long item\n, next item\n"
+        } else {
+            "a long item,\nnext item\n"
+        };
+        assert_eq!(out.into_inner().unwrap(), expected.as_bytes());
+    }
     Ok(())
 }
 
