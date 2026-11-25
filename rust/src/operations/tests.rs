@@ -44,24 +44,20 @@ fn inline_parts_skip_nested_join_boundaries() -> Result<()> {
 }
 
 #[test]
-fn no_break_region_preserves_metadata_index_and_rejects_truncation() -> Result<()> {
+fn no_break_region_markers_round_trip() -> Result<()> {
     let mut buffer = BytesMut::new();
-    put_no_break_region(&mut buffer, 42);
+    put_no_break_region(&mut buffer);
+    put_end_no_break_region(&mut buffer);
     let mut input = buffer.as_ref();
-    match Operation::from_bytes(&mut input)? {
-        Operation::NoBreakRegion(decoded) => assert_eq!(decoded, 42),
-        _ => panic!("expected NoBreakRegion"),
-    }
+    assert!(matches!(
+        Operation::from_bytes(&mut input)?,
+        Operation::NoBreakRegion
+    ));
+    assert!(matches!(
+        Operation::from_bytes(&mut input)?,
+        Operation::EndNoBreakRegion
+    ));
     assert!(input.is_empty());
-    for end in 0..buffer.len() {
-        let original = &buffer[..end];
-        let mut input = original;
-        assert_eq!(
-            Operation::from_bytes(&mut input).unwrap_err().kind(),
-            ErrorKind::UnexpectedEof
-        );
-        assert_eq!(input, original);
-    }
     Ok(())
 }
 

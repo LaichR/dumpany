@@ -66,7 +66,8 @@ pub(crate) enum Operation<'data> {
     JoinPart,
     JoinEnd,
     /// Render encoded operations without automatic line breaks.
-    NoBreakRegion(usize),
+    NoBreakRegion,
+    EndNoBreakRegion,
     /// Append indivisible text.
     NoBreak {
         text: &'data str,
@@ -94,6 +95,7 @@ const NO_BREAK_REGION: u8 = 6;
 const JOIN: u8 = 7;
 const JOIN_PART: u8 = 8;
 const JOIN_END: u8 = 9;
+const END_NO_BREAK_REGION: u8 = 10;
 
 pub(crate) fn put_join(out: &mut BytesMut, policy: crate::core::BreakPolicy) {
     out.put_u8(JOIN);
@@ -111,9 +113,12 @@ pub(crate) fn put_join_end(out: &mut BytesMut) {
     out.put_u8(JOIN_END);
 }
 
-pub(crate) fn put_no_break_region(out: &mut BytesMut, index: usize) {
+pub(crate) fn put_no_break_region(out: &mut BytesMut) {
     out.put_u8(NO_BREAK_REGION);
-    out.put_u64_le(index as u64);
+}
+
+pub(crate) fn put_end_no_break_region(out: &mut BytesMut) {
+    out.put_u8(END_NO_BREAK_REGION);
 }
 
 fn invalid(message: &str) -> Error {
@@ -274,12 +279,8 @@ impl<'a> FromBytes<'a> for Operation<'a> {
             }),
             JOIN_PART => Self::JoinPart,
             JOIN_END => Self::JoinEnd,
-            NO_BREAK_REGION => {
-                let index = u64::from_le_bytes(take(&mut remaining, 8)?.try_into().unwrap());
-                Self::NoBreakRegion(
-                    usize::try_from(index).map_err(|_| invalid("region index exceeds usize"))?,
-                )
-            }
+            NO_BREAK_REGION => Self::NoBreakRegion,
+            END_NO_BREAK_REGION => Self::EndNoBreakRegion,
             TEXT => Self::Text(Text(text(&mut remaining)?)),
             NO_BREAK => {
                 let length = u16::from_le_bytes(take(&mut remaining, 2)?.try_into().unwrap());

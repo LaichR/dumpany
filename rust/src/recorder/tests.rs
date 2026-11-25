@@ -2,26 +2,44 @@ use super::*;
 use crate::operations::{FromBytes, Operation};
 
 #[test]
-fn attached_region_keeps_its_own_content() -> Result<()> {
+fn recording_state_emits_only_an_owned_outermost_recorder() {
+    let mut state = RecordingState::default();
+    assert!(!state.is_active());
+    assert!(!state.end());
+    for recorder_exists in [false, true, false] {
+        state.begin(recorder_exists);
+        state.begin(true);
+        assert!(state.is_active());
+        assert!(!state.end());
+        assert!(state.is_active());
+        assert_eq!(state.end(), !recorder_exists);
+        assert!(!state.is_active());
+        assert!(!state.end());
+    }
+}
+
+#[test]
+fn regions_are_inline_with_surrounding_content() -> Result<()> {
     let mut recorder = Recorder::default();
     recorder.text("before ")?;
-    let mut region = Recorder::default();
-    region.text("a ")?;
-    region.text("+ b")?;
-    recorder.no_break_region(region);
+    recorder.begin_no_break_region();
+    recorder.text("a ")?;
+    recorder.text("+ b")?;
+    recorder.end_no_break_region();
     recorder.text(" after")?;
-    assert_eq!(recorder.regions.len(), 1);
 
     let mut input = recorder.encoded_content();
     assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text("before "));
     assert!(matches!(
         Operation::from_bytes(&mut input)?,
-        Operation::NoBreakRegion(0)
+        Operation::NoBreakRegion
     ));
-    let mut content = recorder.regions[0].encoded_content();
-    assert_eq!(Text::<&str>::from_bytes(&mut content)?, Text("a "));
-    assert_eq!(Text::<&str>::from_bytes(&mut content)?, Text("+ b"));
-    assert!(content.is_empty());
+    assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text("a "));
+    assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text("+ b"));
+    assert!(matches!(
+        Operation::from_bytes(&mut input)?,
+        Operation::EndNoBreakRegion
+    ));
     assert_eq!(Text::<&str>::from_bytes(&mut input)?, Text(" after"));
     assert!(input.is_empty());
     Ok(())
